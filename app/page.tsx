@@ -1,4 +1,13 @@
-export default function Home() {
+import { supabase } from "./supabase";
+
+export const dynamic = "force-dynamic";
+
+export default async function Home() {
+  const { data: persons, error } = await supabase
+    .from("persons")
+    .select("id, name, email")
+    .order("created_at", { ascending: true });
+
   return (
     <main style={{ padding: 32, fontFamily: "Arial, sans-serif" }}>
       <h1>Hjertstedt Family Hub</h1>
@@ -6,7 +15,19 @@ export default function Home() {
       <p>Systemet är anslutet och fungerar ✅</p>
 
       <h2>Familjen</h2>
-      <p>Familjemedlemmar och aktiviteter</p>
+
+      {error ? (
+        <p>❌ Kunde inte läsa familjemedlemmar: {error.message}</p>
+      ) : persons && persons.length > 0 ? (
+        persons.map((person) => (
+          <div key={person.id}>
+            <strong>{person.name}</strong>
+            {person.email && <span> – {person.email}</span>}
+          </div>
+        ))
+      ) : (
+        <p>Inga familjemedlemmar hittades.</p>
+      )}
 
       <h2>Kalender</h2>
       <p>Familjens gemensamma kalender</p>

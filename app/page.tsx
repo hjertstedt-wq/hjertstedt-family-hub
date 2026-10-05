@@ -1,12 +1,51 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
 
-export const dynamic = "force-dynamic";
+type Person = {
+  id: string;
+  name: string | null;
+  email: string | null;
+};
 
-export default async function Home() {
-  const { data: persons, error } = await supabase
-    .from("persons")
-    .select("id, name, email")
-    .order("created_at", { ascending: true });
+export default function Home() {
+  const [persons, setPersons] = useState<Person[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    async function loadFamily() {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session) {
+        window.location.replace("/login");
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("persons")
+        .select("id, name, email")
+        .order("created_at", { ascending: true });
+
+      if (error) {
+        setError(error.message);
+      } else {
+        setPersons(data ?? []);
+      }
+
+      setLoading(false);
+    }
+
+    loadFamily();
+  }, []);
+
+  async function logout() {
+    await supabase.auth.signOut();
+    window.location.replace("/login");
+  }
 
   return (
     <main style={{ padding: 32, fontFamily: "Arial, sans-serif" }}>
@@ -14,11 +53,17 @@ export default async function Home() {
 
       <p>Systemet är anslutet och fungerar ✅</p>
 
+      <button onClick={logout} style={{ padding: 10, cursor: "pointer" }}>
+        Logga ut
+      </button>
+
       <h2>Familjen</h2>
 
-      {error ? (
-        <p>❌ Kunde inte läsa familjemedlemmar: {error.message}</p>
-      ) : persons && persons.length > 0 ? (
+      {loading ? (
+        <p>Laddar familjen...</p>
+      ) : error ? (
+        <p>❌ Kunde inte läsa familjemedlemmar: {error}</p>
+      ) : persons.length > 0 ? (
         persons.map((person) => (
           <div key={person.id}>
             <strong>{person.name}</strong>

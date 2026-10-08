@@ -153,7 +153,14 @@ export default function Home() {
               gap: 14
             }}>
               {persons.map((person, index) => (
-                <div key={person.id} style={{
+                <div
+  key={person.id}
+  onClick={() => {
+    if (editingId !== person.id) {
+      window.location.href = `/person/${person.id}`;
+    }
+  }}
+  style={{
                   background: "#f4f6fa",
                   borderRadius: 16,
                   padding: 20,
@@ -215,9 +222,10 @@ export default function Home() {
                         {person.email || "Familjemedlem"}
                       </p>
                       <button
-                        onClick={() => {
-                          setEditName(person.name ?? "");
-                          setEditingId(person.id);
+                        onClick={(e) => {
+  e.stopPropagation();
+  window.location.href = `/person/${person.id}`;
+}}
                         }}
                         style={{
                           border: "none",

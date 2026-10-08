@@ -226,7 +226,6 @@ export default function Home() {
   e.stopPropagation();
   window.location.href = `/person/${person.id}`;
 }}
-                        }}
                         style={{
                           border: "none",
                           background: "transparent",

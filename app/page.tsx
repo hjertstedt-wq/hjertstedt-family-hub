@@ -252,9 +252,12 @@ export default function Home() {
         }}>
           {[
             {
-              icon: "📅",
-              title: "Kalender",
-              text: "Familjens gemensamma aktiviteter"
+              {
+  icon: "📅",
+  title: "Kalender",
+  text: "Familjens gemensamma aktiviteter",
+  href: "/calendar"
+},
             },
             {
               icon: "⚽",

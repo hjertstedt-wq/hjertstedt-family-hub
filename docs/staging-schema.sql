@@ -29,6 +29,14 @@ create unique index if not exists staging_event_source_external_unique
 create table if not exists public.staging_admins (
   user_id uuid primary key references auth.users(id) on delete cascade
 );
+revoke all on public.staging_admins from anon, authenticated;
+-- RLS policy checks use a locked-down SECURITY DEFINER helper to avoid recursion/privilege errors.
+create or replace function public.is_staging_admin() returns boolean
+language sql stable security definer set search_path = '' as $
+  select exists (select 1 from public.staging_admins where user_id = (select auth.uid()));
+$;
+revoke all on function public.is_staging_admin() from public, anon;
+grant execute on function public.is_staging_admin() to authenticated;
 alter table public.persons enable row level security;
 alter table public.calendar_events enable row level security;
 alter table public.event_persons enable row level security;
@@ -37,14 +45,14 @@ alter table public.staging_admins enable row level security;
 create policy "staging_persons_read" on public.persons for select to authenticated using (true);
 create policy "staging_events_read" on public.calendar_events for select to authenticated using (true);
 create policy "staging_links_read" on public.event_persons for select to authenticated using (true);
-create policy "staging_persons_admin_insert" on public.persons for insert to authenticated with check (exists (select 1 from public.staging_admins where user_id=(select auth.uid())));
-create policy "staging_persons_admin_update" on public.persons for update to authenticated using (exists (select 1 from public.staging_admins where user_id=(select auth.uid()))) with check (exists (select 1 from public.staging_admins where user_id=(select auth.uid())));
-create policy "staging_persons_admin_delete" on public.persons for delete to authenticated using (exists (select 1 from public.staging_admins where user_id=(select auth.uid())));
-create policy "staging_events_admin_insert" on public.calendar_events for insert to authenticated with check (exists (select 1 from public.staging_admins where user_id=(select auth.uid())));
-create policy "staging_events_admin_update" on public.calendar_events for update to authenticated using (exists (select 1 from public.staging_admins where user_id=(select auth.uid()))) with check (exists (select 1 from public.staging_admins where user_id=(select auth.uid())));
-create policy "staging_events_admin_delete" on public.calendar_events for delete to authenticated using (exists (select 1 from public.staging_admins where user_id=(select auth.uid())));
-create policy "staging_links_admin_insert" on public.event_persons for insert to authenticated with check (exists (select 1 from public.staging_admins where user_id=(select auth.uid())));
-create policy "staging_links_admin_delete" on public.event_persons for delete to authenticated using (exists (select 1 from public.staging_admins where user_id=(select auth.uid())));
+create policy "staging_persons_admin_insert" on public.persons for insert to authenticated with check ((select public.is_staging_admin()));
+create policy "staging_persons_admin_update" on public.persons for update to authenticated using ((select public.is_staging_admin())) with check ((select public.is_staging_admin()));
+create policy "staging_persons_admin_delete" on public.persons for delete to authenticated using ((select public.is_staging_admin()));
+create policy "staging_events_admin_insert" on public.calendar_events for insert to authenticated with check ((select public.is_staging_admin()));
+create policy "staging_events_admin_update" on public.calendar_events for update to authenticated using ((select public.is_staging_admin())) with check ((select public.is_staging_admin()));
+create policy "staging_events_admin_delete" on public.calendar_events for delete to authenticated using ((select public.is_staging_admin()));
+create policy "staging_links_admin_insert" on public.event_persons for insert to authenticated with check ((select public.is_staging_admin()));
+create policy "staging_links_admin_delete" on public.event_persons for delete to authenticated using ((select public.is_staging_admin()));
 commit;
 -- AFTER creating a staging Auth user, run manually in staging SQL editor:
 -- insert into public.staging_admins(user_id) values ('REPLACE_WITH_STAGING_TEST_ADMIN_AUTH_UID');

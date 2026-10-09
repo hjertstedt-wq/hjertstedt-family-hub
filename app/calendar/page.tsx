@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../supabase";
 
-type CalendarEvent = {
+type Person = { id: string; name: string };\n\ntype CalendarEvent = {
   id: string;
   title: string;
   starts_at: string;
@@ -23,6 +23,17 @@ export default function CalendarPage() {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [persons, setPersons] = useState<Person[]>([]);
+  const [showForm, setShowForm] = useState(false);
+  const [title, setTitle] = useState("");
+  const [eventDate, setEventDate] = useState(() => dateKey(new Date()));
+  const [startTime, setStartTime] = useState("17:00");
+  const [endTime, setEndTime] = useState("18:00");
+  const [location, setLocation] = useState("");
+  const [participantIds, setParticipantIds] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState("");
+  const [formSuccess, setFormSuccess] = useState("");
   const [month, setMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [selected, setSelected] = useState(() => dateKey(new Date()));
 
@@ -39,6 +50,8 @@ export default function CalendarPage() {
         .order("starts_at", { ascending: true });
       if (queryError) setError(queryError.message);
       else setEvents(data ?? []);
+      const { data: family } = await supabase.from("persons").select("id,name").order("name");
+      setPersons(family ?? []);
       setLoading(false);
     }
     void loadEvents();
@@ -73,6 +86,45 @@ export default function CalendarPage() {
   }, [events]);
 
   const selectedEvents = eventsByDay[selected] ?? [];
+  const saveEvent = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setFormError("");
+    setFormSuccess("");
+    const start = new Date(eventDate + "T" + startTime);
+    const end = new Date(eventDate + "T" + endTime);
+    if (!title.trim() || !Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || end <= start) {
+      setFormError("Ange rubrik och en sluttid efter starttiden.");
+      return;
+    }
+    setSaving(true);
+    const { data, error: insertError } = await supabase.from("calendar_events")
+      .insert({ title: title.trim(), starts_at: start.toISOString(), ends_at: end.toISOString(), location: location.trim() || null, source: "manual" })
+      .select("id,title,starts_at,ends_at,location,category,source").single();
+    if (insertError || !data) {
+      setFormError(insertError?.message ?? "Aktiviteten kunde inte sparas.");
+      setSaving(false);
+      return;
+    }
+    if (participantIds.length) {
+      const { error: participantsError } = await supabase.from("event_persons")
+        .insert(participantIds.map(person_id => ({ event_id: data.id, person_id })));
+      if (participantsError) {
+        setFormError("Aktiviteten sparades, men deltagarna kunde inte kopplas: " + participantsError.message);
+        setEvents(current => [...current, data]);
+        setSaving(false);
+        return;
+      }
+    }
+    setEvents(current => [...current, data]);
+    setSelected(eventDate);
+    setMonth(new Date(start.getFullYear(), start.getMonth(), 1));
+    setShowForm(false);
+    setTitle("");
+    setLocation("");
+    setParticipantIds([]);
+    setFormSuccess("Aktiviteten har sparats.");
+    setSaving(false);
+  };
   const moveMonth = (offset: number) => {
     const next = new Date(month.getFullYear(), month.getMonth() + offset, 1);
     setMonth(next);
@@ -88,6 +140,35 @@ export default function CalendarPage() {
         <h1 style={{ fontSize: 34, marginBottom: 6 }}>Familjens kalender</h1>
         <p style={{ color: "#64748b", marginTop: 0 }}>Gemensam översikt över familjens aktiviteter.</p>
 
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 22 }}>
+          <button onClick={() => { setEventDate(selected); setFormError(""); setShowForm(true); }} style={{ background: "#315e9c", color: "white", border: 0, borderRadius: 10, padding: "13px 18px", fontWeight: 700, cursor: "pointer" }}>+ Lägg till aktivitet</button>
+        </div>
+        {formSuccess && <p role="status" style={{ color: "#246b45" }}>{formSuccess}</p>}
+        {showForm && <section style={{ background: "white", borderRadius: 20, padding: 24, marginTop: 18 }}>
+          <h2 style={{ marginTop: 0 }}>Ny aktivitet</h2>
+          <form onSubmit={saveEvent} style={{ display: "grid", gap: 14 }}>
+            <label>Rubrik <input required value={title} onChange={e => setTitle(e.target.value)} style={inputStyle} placeholder="T.ex. Träning" /></label>
+            <label>Datum <input required type="date" value={eventDate} onChange={e => setEventDate(e.target.value)} style={inputStyle} /></label>
+            <div style={{ display: "flex", gap: 12 }}>
+              <label style={{ flex: 1 }}>Starttid <input required type="time" value={startTime} onChange={e => setStartTime(e.target.value)} style={inputStyle} /></label>
+              <label style={{ flex: 1 }}>Sluttid <input required type="time" value={endTime} onChange={e => setEndTime(e.target.value)} style={inputStyle} /></label>
+            </div>
+            <label>Plats <input value={location} onChange={e => setLocation(e.target.value)} style={inputStyle} placeholder="Valfritt" /></label>
+            <fieldset style={{ border: "1px solid #e1e7ef", borderRadius: 10, padding: 14 }}>
+              <legend>Familjemedlemmar (valfritt)</legend>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
+                {persons.map(person => <label key={person.id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <input type="checkbox" checked={participantIds.includes(person.id)} onChange={e => setParticipantIds(ids => e.target.checked ? [...ids, person.id] : ids.filter(id => id !== person.id))} />{person.name}
+                </label>)}
+              </div>
+            </fieldset>
+            {formError && <p role="alert" style={{ color: "#b42318" }}>{formError}</p>}
+            <div style={{ display: "flex", gap: 12 }}>
+              <button type="submit" disabled={saving} style={{ background: "#315e9c", color: "white", border: 0, borderRadius: 10, padding: "12px 20px", cursor: "pointer" }}>{saving ? "Sparar..." : "Spara aktivitet"}</button>
+              <button type="button" onClick={() => setShowForm(false)} style={{ background: "#f2f5fa", border: 0, borderRadius: 10, padding: "12px 20px", cursor: "pointer" }}>Avbryt</button>
+            </div>
+          </form>
+        </section>}
         <section style={{ background: "white", borderRadius: 20, padding: 22, marginTop: 26 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 20 }}>
             <button onClick={() => moveMonth(-1)} aria-label="Föregående månad" style={navStyle}>‹</button>
@@ -132,5 +213,7 @@ export default function CalendarPage() {
     </main>
   );
 }
+
+const inputStyle = { display: "block", width: "100%", boxSizing: "border-box" as const, marginTop: 6, padding: 11, borderRadius: 8, border: "1px solid #cbd5e1", fontSize: 15 };
 
 const navStyle = { background: "#f2f5fa", border: "1px solid #e1e7ef", borderRadius: 10, fontSize: 27, width: 42, height: 42, cursor: "pointer" };

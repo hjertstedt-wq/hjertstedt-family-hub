@@ -23,13 +23,13 @@ export default function ImportSki() {
       const parse=(s:string)=>{
         if(!/^\d{8}(T\d{6}Z?)?$/.test(s))return null;
         const day=s.slice(0,4)+"-"+s.slice(4,6)+"-"+s.slice(6,8);
-        if(s.length===8)return new Date(day+"T09:00:00").toISOString();
+        if(s.length===8)return new Date(day+"T09:00:00Z").toISOString();
         const time=s.slice(9,11)+":"+s.slice(11,13)+":"+s.slice(13,15);
-        return new Date(day+"T"+time+(s.endsWith("Z")?"Z":"")).toISOString();
+        if(!s.endsWith("Z"))return null; // Floating local time requires an explicit timezone conversion.\n        return new Date(day+"T"+time+"Z").toISOString();
       };
       const records=blocks.flatMap(lines=>{
         try{
-          const title=get(lines,"SUMMARY"),uid=get(lines,"UID");
+          const title=get(lines,"SUMMARY"),uid=get(lines,"UID");\n          // Only UTC timestamps or all-day dates are safe to import without a TZID parser.\n          if(lines.some(line=>/^DT(?:START|END);.*TZID=/i.test(line)))return [];
           const start=parse(get(lines,"DTSTART")),end=parse(get(lines,"DTEND"));
           if(!title||!uid||!start)return [];
           const finish=end||new Date(new Date(start).getTime()+3600000).toISOString();
@@ -37,8 +37,8 @@ export default function ImportSki() {
           return [{title,starts_at:start,ends_at:finish,location:get(lines,"LOCATION")||null,category:"ski_candidate",source:"ski_ics",external_id:uid,description:age+" · Kalenderimport"}];
         }catch{return [];}
       });
-      if(!records.length)throw Error("Inga giltiga poster med UID, datum och namn hittades.");
-      const unique=[...new Map(records.map(item=>[item.external_id,item])).values()];
+      if(!records.length)throw Error("Inga giltiga poster hittades. Importen stöder UTC-tider (Z) och heldagsdatum; lokala tidszoner måste konverteras innan import.");
+      const unique=[...new Map(records.map(item=>[item.external_id,item])).values()];\n      const skipped=blocks.length-records.length;
       const {data:existing,error:readError}=await supabase.from("calendar_events").select("id,external_id,starts_at,ends_at,title,location,category").eq("source","ski_ics").in("external_id",unique.map(item=>item.external_id));
       if(readError)throw readError;
       const known=new Set((existing||[]).map(item=>item.external_id));
@@ -56,7 +56,7 @@ export default function ImportSki() {
         const {error:updateError}=await supabase.from("calendar_events").update({title:item.title,starts_at:item.starts_at,ends_at:item.ends_at,location:item.location}).eq("id",old.id).eq("category","ski_candidate");
         if(updateError)failures.push(item.title+": "+updateError.message);else changed++;
       }
-      setMessage(fresh.length+" nya förslag, "+changed+" uppdaterade förslag, "+(unique.length-fresh.length-changed)+" redan kända. "+failures.join(" "));
+      setMessage(fresh.length+" nya förslag, "+changed+" uppdaterade förslag, "+(unique.length-fresh.length-changed)+" redan kända, "+skipped+" överhoppade (t.ex. tidszon som inte stöds). "+failures.join(" "));
       setIcs("");
     }catch(error){setMessage(error instanceof Error?error.message:"Importen misslyckades.");}
     setBusy(false);

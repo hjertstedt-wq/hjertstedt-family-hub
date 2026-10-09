@@ -42,6 +42,7 @@ export default function Home() {
       const { data: nextEvents, error: upcomingError } = await supabase.from("calendar_events")
         .select("id,title,starts_at,ends_at,location")
         .gte("ends_at", new Date().toISOString())
+        .neq("category", "ski_candidate")
         .order("starts_at", { ascending: true }).limit(6);
       if (upcomingError) setCalendarError("Kunde inte läsa kommande aktiviteter.");
       else setUpcoming(nextEvents ?? []);
@@ -285,6 +286,12 @@ export default function Home() {
               href: "/calendar"
             },
             {
+              icon: "⛷️",
+              title: "Alpint – tävlingar",
+              text: "Elsa U16 och Alva U14 – granska och godkänn tävlingar",
+              href: "/ski"
+            },
+            {
               icon: "⚽",
               title: "Elsas fotboll",
               text: "Träningar, matcher och anmälningar"
@@ -326,7 +333,7 @@ export default function Home() {
                 {item.text}
               </p>
               <small style={{ color: "href" in item ? "#2563eb" : "#8492a6", fontWeight: "href" in item ? 600 : 400 }}>
-                {"href" in item ? "Öppna kalender →" : "Kommer snart"}
+                {"href" in item ? "Öppna →" : "Kommer snart"}
               </small>
             </section>
           ))}

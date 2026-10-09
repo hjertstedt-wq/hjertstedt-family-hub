@@ -6,6 +6,11 @@ import { supabase } from "../supabase";
 type Person = { id: string; name: string };
 type Race = { id: string; title: string; starts_at: string; ends_at: string; location: string | null; category: string; source: string; description: string | null };
 const key = (date: Date) => [date.getFullYear(), String(date.getMonth()+1).padStart(2,"0"), String(date.getDate()).padStart(2,"0")].join("-");
+const eligibleFor = (description:string|null,name:string) => {
+ const age=/elsa/i.test(name)?"U16":"U14";
+ const tokens=(description??"").match(/U(?:12|14|16|18)/gi)?.map(t=>t.toUpperCase())??[];
+ return tokens.includes(age);
+};
 const styles: React.CSSProperties = { width: "100%", boxSizing: "border-box", padding: 12, border: "1px solid #cbd5e1", borderRadius: 10, fontSize: 16 };
 
 export default function SkiPage() {
@@ -46,7 +51,7 @@ export default function SkiPage() {
     if(filter==="approved")return r.category==="ski_approved";
     if(filter==="candidate")return r.category==="ski_candidate";
     const name=persons.find(p=>p.id===filter)?.name.toLowerCase()??"";
-    return (links[r.id]??[]).includes(filter) || (r.category==="ski_candidate" && (r.description??"").includes(name.includes("elsa")?"U16":"U14") || (r.description??"").includes("U14/U16"));
+    return (links[r.id]??[]).includes(filter) || (r.category==="ski_candidate" && eligibleFor(r.description,name));
   });
   async function addRace(e: React.FormEvent) {
     e.preventDefault();setError("");setNotice("");setBusy("create");
@@ -61,7 +66,7 @@ export default function SkiPage() {
   }
   async function approve(race:Race, ids:string[]) {
     setError("");setNotice("");setBusy(race.id);
-    if(!ids.length){setError("Välj Elsa eller Alva innan du godkänner.");setBusy(null);return;}
+    if(!ids.length || ids.some(id=>!children.some(p=>p.id===id&&eligibleFor(race.description,p.name)))){setError("Välj en deltagare som tävlingen gäller för.");setBusy(null);return;}
     const {error:linkError}=await supabase.from("event_persons").upsert(ids.map(person_id=>({event_id:race.id,person_id})),{onConflict:"event_id,person_id"});
     if(linkError){setError("Kunde inte koppla deltagare: "+linkError.message);setBusy(null);return;}
     const {error:updateError}=await supabase.from("calendar_events").update({category:"ski_approved"}).eq("id",race.id);
@@ -76,7 +81,7 @@ export default function SkiPage() {
     const failures:string[]=[];
     let count=0;
     for(const race of chosen){
-      const eligible=children.filter(p=>race.description?.includes("U14/U16")||race.description?.includes(/elsa/i.test(p.name)?"U16":"U14"));
+      const eligible=children.filter(p=>eligibleFor(race.description,p.name));
       if(!eligible.length){failures.push(race.title+": oklar åldersklass");continue;}
       const {error:linkError}=await supabase.from("event_persons").upsert(eligible.map(p=>({event_id:race.id,person_id:p.id})),{onConflict:"event_id,person_id"});
       if(linkError){failures.push(race.title+": "+linkError.message);continue;}
@@ -154,7 +159,7 @@ export default function SkiPage() {
         </div>}
         {loading?<p>Laddar...</p>:selected.length===0?<p>Inga tävlingar hittades. Officiella tävlingsflöden är ännu inte anslutna.</p>:
           <div style={{display:"grid",gap:12}}>{selected.map(r=>{
-            const allowed=children.filter(p=>r.description?.includes("U14/U16")||r.description?.includes(/elsa/i.test(p.name)?"U16":"U14"));
+            const allowed=children.filter(p=>eligibleFor(r.description,p.name));
             const assigned=children.filter(p=>(links[r.id]??[]).includes(p.id));
             return <article key={r.id} style={{border:"1px solid #e2e8f0",borderRadius:12,padding:15}}>
               {r.category==="ski_candidate"&&<label style={{display:"inline-flex",gap:8,alignItems:"center",marginRight:10}}>

@@ -62,6 +62,7 @@ export default function CalendarPage() {
       const { data, error: queryError } = await supabase
         .from("calendar_events")
         .select("id,title,starts_at,ends_at,location,category,source")
+        .neq("category", "ski_candidate")
         .order("starts_at", { ascending: true });
       if (queryError) setError(queryError.message);
       else {
@@ -87,6 +88,7 @@ export default function CalendarPage() {
   }, [router]);
 
   const visibleEvents = useMemo(() => events.filter(event => {
+    if (event.category === "ski_candidate") return false;
     if (personFilter !== "all" && !(eventParticipants[event.id] ?? []).includes(personFilter)) return false;
     const query = search.trim().toLocaleLowerCase("sv-SE");
     if (!query) return true;

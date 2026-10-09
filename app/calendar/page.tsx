@@ -26,6 +26,8 @@ export default function CalendarPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [persons, setPersons] = useState<Person[]>([]);
+  const [eventParticipants, setEventParticipants] = useState<Record<string, string[]>>({});
+  const [viewingId, setViewingId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState("");
   const [eventDate, setEventDate] = useState(() => dateKey(new Date()));
@@ -59,6 +61,10 @@ export default function CalendarPage() {
       else setEvents(data ?? []);
       const { data: family } = await supabase.from("persons").select("id,name").order("name");
       setPersons(family ?? []);
+      const { data: links } = await supabase.from("event_persons").select("event_id,person_id");
+      const participants: Record<string, string[]> = {};
+      for (const link of links ?? []) (participants[link.event_id] ??= []).push(link.person_id);
+      setEventParticipants(participants);
       setLoading(false);
     }
     void loadEvents();
@@ -134,6 +140,8 @@ export default function CalendarPage() {
       }
     }
     setEvents(current => editingId ? current.map(item => item.id === data.id ? data : item) : [...current, data]);
+    setEventParticipants(current => ({ ...current, [data.id]: participantIds }));
+    setViewingId(data.id);
     setSelected(eventDate);
     setMonth(new Date(start.getFullYear(), start.getMonth(), 1));
     setShowForm(false);
@@ -146,6 +154,7 @@ export default function CalendarPage() {
   };
   const chooseDate = (key: string) => {
     setSelected(key);
+    setViewingId(null);
     setEditingId(null);
     setTitle("");
     setLocation("");
@@ -193,9 +202,17 @@ export default function CalendarPage() {
       setDeleteError("Aktiviteten kunde inte raderas. Kontrollera din behörighet.");
     } else {
       setEvents(current => current.filter(item => item.id !== event.id));
+      setEventParticipants(current => { const updated = { ...current }; delete updated[event.id]; return updated; });
+      setViewingId(current => current === event.id ? null : current);
       setFormSuccess("Aktiviteten har raderats.");
     }
     setDeletingId(null);
+  };
+  const viewingEvent = events.find(event => event.id === viewingId);
+  const showDetails = (event: CalendarEvent) => {
+    setSelected(dateKey(new Date(event.starts_at)));
+    setViewingId(event.id);
+    setShowForm(false);
   };
   const moveMonth = (offset: number) => {
     const next = new Date(month.getFullYear(), month.getMonth() + offset, 1);
@@ -259,7 +276,7 @@ export default function CalendarPage() {
               const inMonth = day.getMonth() === month.getMonth();
               const isSelected = key === selected;
               return (
-                <button key={key} onClick={() => chooseDate(key)} aria-pressed={isSelected} style={{
+                <button key={key} onClick={() => { if (dayEvents.length) showDetails(dayEvents[0]); else chooseDate(key); }} aria-pressed={isSelected} style={{
                   minHeight: 80, textAlign: "left", padding: 7, borderRadius: 10, cursor: "pointer",
                   border: isSelected ? "2px solid #3766b1" : "1px solid #e8edf4",
                   background: isSelected ? "#eef4ff" : inMonth ? "#fff" : "#f7f8fb",
@@ -274,13 +291,39 @@ export default function CalendarPage() {
           </div>
         </section>
 
+        {viewingEvent && <section style={{ background: "white", borderRadius: 20, padding: 24, marginTop: 18, border: "1px solid #c8d8f2" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+            <h2 style={{ margin: 0 }}>{viewingEvent.title}</h2>
+            <button type="button" onClick={() => setViewingId(null)} style={{ border: 0, background: "#f2f5fa", borderRadius: 8, padding: "8px 12px", cursor: "pointer" }}>Stäng ×</button>
+          </div>
+          {(() => {
+            const start = new Date(viewingEvent.starts_at);
+            const end = new Date(viewingEvent.ends_at);
+            const fullDay = start.getHours() === 0 && start.getMinutes() === 0 && end.getHours() === 0 && end.getMinutes() === 0;
+            const last = new Date(end);
+            if (fullDay) last.setDate(last.getDate() - 1);
+            const fmt = (d: Date) => d.toLocaleDateString("sv-SE", { day: "numeric", month: "long", year: "numeric" });
+            const names = (eventParticipants[viewingEvent.id] ?? []).map(id => persons.find(p => p.id === id)?.name).filter(Boolean);
+            return <div style={{ display: "grid", gap: 10, marginTop: 20 }}>
+              <div><strong>Datum:</strong> {fmt(start)}{dateKey(start) !== dateKey(last) ? " – " + fmt(last) : ""}</div>
+              <div><strong>Tid:</strong> {fullDay ? "Heldag" : start.toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" }) + " – " + end.toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" })}</div>
+              <div><strong>Plats/ort:</strong> {viewingEvent.location || "Ej angiven"}</div>
+              <div><strong>Deltagare:</strong> {names.length ? names.join(", ") : "Inga angivna"}</div>
+              <div><strong>Källa:</strong> {viewingEvent.source}</div>
+            </div>;
+          })()}
+          {viewingEvent.source === "manual" && <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+            <button onClick={() => void editEvent(viewingEvent)} style={{ padding: "10px 16px", border: 0, borderRadius: 9, background: "#315e9c", color: "white", cursor: "pointer" }}>Redigera</button>
+            <button onClick={() => void deleteEvent(viewingEvent)} disabled={deletingId !== null} style={{ padding: "10px 16px", border: "1px solid #f3c6c6", borderRadius: 9, background: "white", color: "#b42318", cursor: "pointer" }}>Radera</button>
+          </div>}
+        </section>}
         <section style={{ background: "white", borderRadius: 20, padding: 24, marginTop: 18 }}>
           <h2 style={{ marginTop: 0, fontSize: 20 }}>Aktiviteter {new Date(selected + "T12:00:00").toLocaleDateString("sv-SE", { day: "numeric", month: "long" })}</h2>
           {deleteError && <p role="alert" style={{ color: "#b42318" }}>{deleteError}</p>}
           {loading ? <p>Laddar aktiviteter...</p> : error ? <p role="alert" style={{ color: "#b42318" }}>{error}</p> :
             selectedEvents.length === 0 ? <p style={{ color: "#64748b" }}>Inga aktiviteter denna dag ännu.</p> :
             selectedEvents.map(event => <article key={event.id} style={{ borderTop: "1px solid #e8edf4", padding: "14px 0" }}>
-              <strong>{event.title}</strong>
+              <button type="button" onClick={() => showDetails(event)} style={{ border: 0, background: "transparent", padding: 0, fontWeight: 700, color: "#315e9c", cursor: "pointer", textAlign: "left" }}>{event.title} → Visa information</button>
               <div style={{ color: "#64748b", fontSize: 14, marginTop: 5 }}>{new Date(event.starts_at).toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" })}–{new Date(event.ends_at).toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" })}{event.location ? " · " + event.location : ""}</div>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 8 }}>
                 <small style={{ color: "#8492a6" }}>Källa: {event.source}</small>

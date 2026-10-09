@@ -23,6 +23,7 @@ export default function SkiPage() {
   const [error,setError] = useState("");
   const [notice,setNotice] = useState("");
   const [loading,setLoading] = useState(true);
+  const [selectedRaceIds,setSelectedRaceIds] = useState<string[]>([]);
   const children = useMemo(()=>persons.filter(p=>/elsa|alva/i.test(p.name)),[persons]);
   const reload = async () => {
     const [a,b,c] = await Promise.all([
@@ -67,6 +68,25 @@ export default function SkiPage() {
     if(updateError)setError("Deltagarna sparades men tävlingen kunde inte godkännas: "+updateError.message);
     else setNotice("Tävlingen visas nu i huvudkalendern.");
     await reload();setBusy(null);
+  }
+  async function approveSelected() {
+    setError("");setNotice("");setBusy("bulk");
+    const chosen=races.filter(r=>selectedRaceIds.includes(r.id)&&r.category==="ski_candidate");
+    if(!chosen.length){setBusy(null);return;}
+    const failures:string[]=[];
+    let count=0;
+    for(const race of chosen){
+      const eligible=children.filter(p=>race.description?.includes("U14/U16")||race.description?.includes(/elsa/i.test(p.name)?"U16":"U14"));
+      if(!eligible.length){failures.push(race.title+": oklar åldersklass");continue;}
+      const {error:linkError}=await supabase.from("event_persons").upsert(eligible.map(p=>({event_id:race.id,person_id:p.id})),{onConflict:"event_id,person_id"});
+      if(linkError){failures.push(race.title+": "+linkError.message);continue;}
+      const {error:updateError}=await supabase.from("calendar_events").update({category:"ski_approved"}).eq("id",race.id);
+      if(updateError)failures.push(race.title+": "+updateError.message);else count++;
+    }
+    setSelectedRaceIds([]);await reload();
+    setNotice(count+" tävlingar godkända för matchande åldersklasser.");
+    if(failures.length)setError("Vissa kunde inte godkännas: "+failures.join("; "));
+    setBusy(null);
   }
   async function removeParticipant(race:Race, personId:string) {
     setBusy(race.id);setError("");setNotice("");
@@ -126,11 +146,19 @@ export default function SkiPage() {
           <option value="all">Alla tävlingar</option><option value="candidate">Möjliga tävlingar</option><option value="approved">Godkända tävlingar</option>
           {children.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
+        {selectedRaceIds.length>0&&<div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",marginBottom:14}}>
+          <strong>{selectedRaceIds.length} markerade</strong>
+          <button disabled={busy!==null} onClick={()=>void approveSelected()} style={{padding:"10px 14px",background:"#dcf3e6",border:0,borderRadius:8,cursor:"pointer"}}>Godkänn markerade för rätt åldersklass</button>
+          <button onClick={()=>setSelectedRaceIds([])} style={{padding:10}}>Rensa val</button>
+        </div>}
         {loading?<p>Laddar...</p>:selected.length===0?<p>Inga tävlingar hittades. Officiella tävlingsflöden är ännu inte anslutna.</p>:
           <div style={{display:"grid",gap:12}}>{selected.map(r=>{
             const allowed=children.filter(p=>r.description?.includes("U14/U16")||r.description?.includes(/elsa/i.test(p.name)?"U16":"U14"));
             const assigned=children.filter(p=>(links[r.id]??[]).includes(p.id));
             return <article key={r.id} style={{border:"1px solid #e2e8f0",borderRadius:12,padding:15}}>
+              {r.category==="ski_candidate"&&<label style={{display:"inline-flex",gap:8,alignItems:"center",marginRight:10}}>
+                <input type="checkbox" checked={selectedRaceIds.includes(r.id)} onChange={e=>setSelectedRaceIds(old=>e.target.checked?[...old,r.id]:old.filter(id=>id!==r.id))}/> Välj
+              </label>}
               <strong>{r.title}</strong>
               <div style={{fontSize:14,color:"#475569",marginTop:7}}>{new Date(r.starts_at).toLocaleDateString("sv-SE")} – {new Date(r.ends_at).toLocaleDateString("sv-SE")} · {r.location||"Ort ej angiven"} · {r.description||"Klass ej angiven"}</div>
               <p style={{fontSize:13}}>{r.category==="ski_approved"?"Godkänd för "+assigned.map(p=>p.name).join(", "):"Möjlig tävling – inte i familjekalendern"}</p>

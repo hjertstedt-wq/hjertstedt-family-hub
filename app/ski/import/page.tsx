@@ -25,11 +25,14 @@ export default function ImportSki() {
         const day=s.slice(0,4)+"-"+s.slice(4,6)+"-"+s.slice(6,8);
         if(s.length===8)return new Date(day+"T09:00:00Z").toISOString();
         const time=s.slice(9,11)+":"+s.slice(11,13)+":"+s.slice(13,15);
-        if(!s.endsWith("Z"))return null; // Floating local time requires an explicit timezone conversion.\n        return new Date(day+"T"+time+"Z").toISOString();
+        if(!s.endsWith("Z"))return null; // Floating local time requires an explicit timezone conversion. 
+        return new Date(day+"T"+time+"Z").toISOString();
       };
       const records=blocks.flatMap(lines=>{
         try{
-          const title=get(lines,"SUMMARY"),uid=get(lines,"UID");\n          // Only UTC timestamps or all-day dates are safe to import without a TZID parser.\n          if(lines.some(line=>/^DT(?:START|END);.*TZID=/i.test(line)))return [];
+          const title=get(lines,"SUMMARY"),uid=get(lines,"UID"); 
+          // Only UTC timestamps or all-day dates are safe to import without a TZID parser. 
+          if(lines.some(line=>/^DT(?:START|END);.*TZID=/i.test(line)))return [];
           const start=parse(get(lines,"DTSTART")),end=parse(get(lines,"DTEND"));
           if(!title||!uid||!start)return [];
           const finish=end||new Date(new Date(start).getTime()+3600000).toISOString();
@@ -38,7 +41,8 @@ export default function ImportSki() {
         }catch{return [];}
       });
       if(!records.length)throw Error("Inga giltiga poster hittades. Importen stöder UTC-tider (Z) och heldagsdatum; lokala tidszoner måste konverteras innan import.");
-      const unique=[...new Map(records.map(item=>[item.external_id,item])).values()];\n      const skipped=blocks.length-records.length;
+      const unique=[...new Map(records.map(item=>[item.external_id,item])).values()]; 
+      const skipped=blocks.length-records.length;
       const {data:existing,error:readError}=await supabase.from("calendar_events").select("id,external_id,starts_at,ends_at,title,location,category").eq("source","ski_ics").in("external_id",unique.map(item=>item.external_id));
       if(readError)throw readError;
       const known=new Set((existing||[]).map(item=>item.external_id));

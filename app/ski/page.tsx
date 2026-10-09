@@ -68,6 +68,20 @@ export default function SkiPage() {
     else setNotice("Tävlingen visas nu i huvudkalendern.");
     await reload();setBusy(null);
   }
+  async function removeParticipant(race:Race, personId:string) {
+    setBusy(race.id);setError("");setNotice("");
+    const {error:removeError}=await supabase.from("event_persons").delete().eq("event_id",race.id).eq("person_id",personId);
+    if(removeError)setError("Kunde inte ta bort deltagaren: "+removeError.message);
+    else {
+      const remaining=(links[race.id]??[]).filter(id=>id!==personId);
+      if(!remaining.length){
+        const {error:changeError}=await supabase.from("calendar_events").update({category:"ski_candidate"}).eq("id",race.id);
+        if(changeError)setError("Deltagaren togs bort men tävlingen kunde inte återställas: "+changeError.message);
+      }
+      setNotice("Deltagandet har uppdaterats.");await reload();
+    }
+    setBusy(null);
+  }
   async function unapprove(race:Race) {
     setError("");setNotice("");setBusy(race.id);
     const {error:changeError}=await supabase.from("calendar_events").update({category:"ski_candidate"}).eq("id",race.id);
@@ -83,6 +97,7 @@ export default function SkiPage() {
     <div style={{maxWidth:960,margin:"auto"}}>
       <a href="/" style={{color:"#315e9c"}}>← Till familjen</a>
       <h1>Alpint – tävlingar</h1>
+      <p><a href="/ski/import" style={{color:"#315e9c",fontWeight:700}}>Importera tävlingar från kalenderfil (.ics) →</a></p>
       <p style={{color:"#64748b"}}>Elsa · U16 · NSK / Region 5 &nbsp;|&nbsp; Alva · U14 · NSK / Region 5</p>
       <p>Förslag ligger separat. Först när du godkänner en tävling visas den i familjens huvudkalender.</p>
       {error&&<p role="alert" style={{color:"#b42318"}}>{error}</p>}
@@ -121,6 +136,7 @@ export default function SkiPage() {
               <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                 {r.category==="ski_candidate"?allowed.map(p=><button key={p.id} disabled={busy!==null} onClick={()=>void approve(r,[p.id])} style={{padding:"10px 12px",border:0,borderRadius:8,background:"#dcf3e6",cursor:"pointer"}}>Godkänn för {p.name}</button>):<>
                   {allowed.filter(p=>!assigned.some(a=>a.id===p.id)).map(p=><button key={p.id} disabled={busy!==null} onClick={()=>void approve(r,[p.id])} style={{padding:"10px 12px",border:0,borderRadius:8,background:"#dcf3e6",cursor:"pointer"}}>Lägg till {p.name}</button>)}
+                  {assigned.map(p=><button key={p.id} disabled={busy!==null} onClick={()=>void removeParticipant(r,p.id)} style={{padding:"10px 12px",border:"1px solid #cbd5e1",borderRadius:8,background:"white",cursor:"pointer"}}>Ta bort {p.name}</button>)}
                   <button disabled={busy!==null} onClick={()=>void unapprove(r)} style={{padding:"10px 12px",border:"1px solid #cbd5e1",borderRadius:8,background:"white",cursor:"pointer"}}>Ta bort från huvudkalendern</button>
                 </>}
               </div>

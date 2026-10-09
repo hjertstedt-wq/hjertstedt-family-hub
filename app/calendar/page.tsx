@@ -167,7 +167,7 @@ export default function CalendarPage() {
             {!allDay && <div style={{ display: "flex", gap: 12 }}>
               <label style={{ flex: 1 }}>Starttid <input required type="time" value={startTime} onChange={e => setStartTime(e.target.value)} style={inputStyle} /></label>
               <label style={{ flex: 1 }}>Sluttid <input required type="time" value={endTime} onChange={e => setEndTime(e.target.value)} style={inputStyle} /></label>
-            </div>
+            </div>}
             <label>Plats <input value={location} onChange={e => setLocation(e.target.value)} style={inputStyle} placeholder="Valfritt" /></label>
             <fieldset style={{ border: "1px solid #e1e7ef", borderRadius: 10, padding: 14 }}>
               <legend>Familjemedlemmar (valfritt)</legend>

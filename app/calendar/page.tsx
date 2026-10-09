@@ -38,6 +38,8 @@ export default function CalendarPage() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
   const [formSuccess, setFormSuccess] = useState("");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState("");
   const [month, setMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [selected, setSelected] = useState(() => dateKey(new Date()));
 
@@ -136,6 +138,23 @@ export default function CalendarPage() {
     setFormError("");
     setShowForm(true);
   };
+  const deleteEvent = async (event: CalendarEvent) => {
+    if (event.source !== "manual" || deletingId) return;
+    if (!window.confirm('Vill du verkligen radera "' + event.title + '"? Aktiviteten tas bort permanent.')) return;
+    setDeletingId(event.id);
+    setDeleteError("");
+    const { data, error: removeError } = await supabase.from("calendar_events")
+      .delete().eq("id", event.id).eq("source", "manual").select("id");
+    if (removeError) {
+      setDeleteError("Kunde inte radera aktiviteten: " + removeError.message);
+    } else if (!data || data.length === 0) {
+      setDeleteError("Aktiviteten kunde inte raderas. Kontrollera din behörighet.");
+    } else {
+      setEvents(current => current.filter(item => item.id !== event.id));
+      setFormSuccess("Aktiviteten har raderats.");
+    }
+    setDeletingId(null);
+  };
   const moveMonth = (offset: number) => {
     const next = new Date(month.getFullYear(), month.getMonth() + offset, 1);
     setMonth(next);
@@ -215,12 +234,22 @@ export default function CalendarPage() {
 
         <section style={{ background: "white", borderRadius: 20, padding: 24, marginTop: 18 }}>
           <h2 style={{ marginTop: 0, fontSize: 20 }}>Aktiviteter {new Date(selected + "T12:00:00").toLocaleDateString("sv-SE", { day: "numeric", month: "long" })}</h2>
+          {deleteError && <p role="alert" style={{ color: "#b42318" }}>{deleteError}</p>}
           {loading ? <p>Laddar aktiviteter...</p> : error ? <p role="alert" style={{ color: "#b42318" }}>{error}</p> :
             selectedEvents.length === 0 ? <p style={{ color: "#64748b" }}>Inga aktiviteter denna dag ännu.</p> :
             selectedEvents.map(event => <article key={event.id} style={{ borderTop: "1px solid #e8edf4", padding: "14px 0" }}>
               <strong>{event.title}</strong>
               <div style={{ color: "#64748b", fontSize: 14, marginTop: 5 }}>{new Date(event.starts_at).toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" })}–{new Date(event.ends_at).toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" })}{event.location ? " · " + event.location : ""}</div>
-              <small style={{ color: "#8492a6" }}>Källa: {event.source}</small>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 8 }}>
+                <small style={{ color: "#8492a6" }}>Källa: {event.source}</small>
+                {event.source === "manual" && (
+                  <button type="button" disabled={deletingId !== null} onClick={() => void deleteEvent(event)}
+                    aria-label={"Radera " + event.title}
+                    style={{ color: "#b42318", border: "1px solid #f3c6c6", background: "#fff", borderRadius: 8, padding: "7px 11px", cursor: deletingId ? "wait" : "pointer" }}>
+                    {deletingId === event.id ? "Raderar..." : "Radera"}
+                  </button>
+                )}
+              </div>
             </article>)
           }
         </section>

@@ -6,6 +6,7 @@ export default function ImportSki() {
   const [age,setAge]=useState("U14/U16");
   const [message,setMessage]=useState("");
   const [busy,setBusy]=useState(false);
+  const [preview,setPreview]=useState<{title:string;date:string}[]>([]);
   async function submit(e:React.FormEvent) {
     e.preventDefault();setBusy(true);setMessage("");
     try {
@@ -38,12 +39,24 @@ export default function ImportSki() {
       });
       if(!records.length)throw Error("Inga giltiga poster med UID, datum och namn hittades.");
       const unique=[...new Map(records.map(item=>[item.external_id,item])).values()];
-      const {data:existing,error:readError}=await supabase.from("calendar_events").select("external_id").eq("source","ski_ics").in("external_id",unique.map(item=>item.external_id));
+      const {data:existing,error:readError}=await supabase.from("calendar_events").select("id,external_id,starts_at,ends_at,title,location,category").eq("source","ski_ics").in("external_id",unique.map(item=>item.external_id));
       if(readError)throw readError;
       const known=new Set((existing||[]).map(item=>item.external_id));
+      setPreview(unique.map(item=>({title:item.title,date:new Date(item.starts_at).toLocaleDateString("sv-SE")})));
       const fresh=unique.filter(item=>!known.has(item.external_id));
       if(fresh.length){const {error}=await supabase.from("calendar_events").insert(fresh);if(error)throw error;}
-      setMessage(fresh.length+" nya förslag importerade. "+(unique.length-fresh.length)+" dubbletter hoppades över. Godkända tävlingar har inte ändrats.");
+      let changed=0;
+      const failures:string[]=[];
+      for(const item of unique.filter(item=>known.has(item.external_id))){
+        const old=(existing||[]).find(row=>row.external_id===item.external_id);
+        if(!old)continue;
+        if(old.title===item.title&&old.starts_at===item.starts_at&&old.ends_at===item.ends_at&&old.location===item.location)continue;
+        // Keep approved events unchanged until the family explicitly reviews changes.
+        if(old.category==="ski_approved"){failures.push(item.title+" har ändrats i källan och behöver granskas manuellt.");continue;}
+        const {error:updateError}=await supabase.from("calendar_events").update({title:item.title,starts_at:item.starts_at,ends_at:item.ends_at,location:item.location}).eq("id",old.id).eq("category","ski_candidate");
+        if(updateError)failures.push(item.title+": "+updateError.message);else changed++;
+      }
+      setMessage(fresh.length+" nya förslag, "+changed+" uppdaterade förslag, "+(unique.length-fresh.length-changed)+" redan kända. "+failures.join(" "));
       setIcs("");
     }catch(error){setMessage(error instanceof Error?error.message:"Importen misslyckades.");}
     setBusy(false);
@@ -60,6 +73,7 @@ export default function ImportSki() {
         <button disabled={busy} style={{padding:14,background:"#315e9c",color:"white",border:0,borderRadius:10}}>{busy?"Importerar...":"Importera tävlingar"}</button>
       </form>
       {message&&<p role="status">{message}</p>}
+      {preview.length>0&&<section><h2>Senast lästa aktiviteter</h2><ul>{preview.slice(0,25).map((item,i)=><li key={i}>{item.date} – {item.title}</li>)}</ul></section>}
     </div>
   </main>;
 }

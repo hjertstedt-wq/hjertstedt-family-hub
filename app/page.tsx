@@ -252,12 +252,10 @@ export default function Home() {
         }}>
           {[
             {
-              {
-  icon: "📅",
-  title: "Kalender",
-  text: "Familjens gemensamma aktiviteter",
-  href: "/calendar"
-},
+              icon: "📅",
+              title: "Kalender",
+              text: "Familjens gemensamma aktiviteter",
+              href: "/calendar"
             },
             {
               icon: "⚽",
@@ -275,7 +273,14 @@ export default function Home() {
               text: "Familjens konton och anslutningar"
             }
           ].map((item) => (
-            <section key={item.title} style={{
+            <section
+              key={item.title}
+              onClick={() => {
+                if ("href" in item && item.href) {
+                  window.location.href = item.href;
+                }
+              }}
+              style={{
               background: "white",
               borderRadius: 20,
               padding: 24,

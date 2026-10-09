@@ -64,7 +64,17 @@ export default function CalendarPage() {
         .select("id,title,starts_at,ends_at,location,category,source")
         .order("starts_at", { ascending: true });
       if (queryError) setError(queryError.message);
-      else setEvents(data ?? []);
+      else {
+        setEvents(data ?? []);
+        const eventId = new URLSearchParams(window.location.search).get("event");
+        const linkedEvent = (data ?? []).find(item => item.id === eventId);
+        if (linkedEvent) {
+          const date = new Date(linkedEvent.starts_at);
+          setViewingId(linkedEvent.id);
+          setSelected(dateKey(date));
+          setMonth(new Date(date.getFullYear(), date.getMonth(), 1));
+        }
+      }
       const { data: family } = await supabase.from("persons").select("id,name").order("name");
       setPersons(family ?? []);
       const { data: links } = await supabase.from("event_persons").select("event_id,person_id");
@@ -276,6 +286,12 @@ export default function CalendarPage() {
     setMonth(next);
     setSelected(dateKey(next));
   };
+  const navigate = (direction: number) => {
+    if (view === "month") { moveMonth(direction); return; }
+    const date = addDays(new Date(selected + "T12:00:00"), direction * (view === "week" ? 7 : 1));
+    setSelected(dateKey(date));
+    setMonth(new Date(date.getFullYear(), date.getMonth(), 1));
+  };
 
   return (
     <main style={{ minHeight: "100vh", background: "#f4f6fa", padding: "32px 16px", fontFamily: "Arial, sans-serif", color: "#17253b" }}>
@@ -344,9 +360,9 @@ export default function CalendarPage() {
         </section>}
         <section style={{ background: "white", borderRadius: 20, padding: 22, marginTop: 26 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 20 }}>
-            <button onClick={() => moveMonth(-1)} aria-label="Föregående månad" style={navStyle}>‹</button>
-            <h2 style={{ textTransform: "capitalize", margin: 0, fontSize: 22, textAlign: "center" }}>{monthLabel.format(month)}</h2>
-            <button onClick={() => moveMonth(1)} aria-label="Nästa månad" style={navStyle}>›</button>
+            <button onClick={() => navigate(-1)} aria-label="Föregående månad" style={navStyle}>‹</button>
+            <h2 style={{ textTransform: "capitalize", margin: 0, fontSize: 22, textAlign: "center" }}>{view === "month" ? monthLabel.format(month) : view === "day" ? new Date(selected + "T12:00:00").toLocaleDateString("sv-SE", { weekday: "long", day: "numeric", month: "long" }) : "Vecka " + Math.ceil((new Date(selected + "T12:00:00").getTime() - new Date(new Date(selected + "T12:00:00").getFullYear(), 0, 1).getTime()) / 604800000)}</h2>
+            <button onClick={() => navigate(1)} aria-label="Nästa månad" style={navStyle}>›</button>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: view === "day" ? "minmax(0, 1fr)" : "repeat(7, minmax(0, 1fr))", gap: 5 }}>
             {view !== "day" && weekdays.map(day => <div key={day} style={{ textAlign: "center", fontSize: 12, color: "#64748b", fontWeight: 700, padding: "8px 0" }}>{day}</div>)}

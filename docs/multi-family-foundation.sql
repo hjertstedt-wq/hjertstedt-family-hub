@@ -39,7 +39,7 @@ create policy "families_member_read" on public.families
  );
 create policy "family_sources_member_read" on public.family_sources
  for select to authenticated using (
-  exists (select 1 from public.family_memberships m where m.family_id=family_id and m.user_id=(select auth.uid()))
+  exists (select 1 from public.family_memberships m where m.family_id=public.family_sources.family_id and m.user_id=(select auth.uid()))
  );
 -- No client write policies yet. Use a security-reviewed, authenticated server flow for family creation.
 -- NEXT MIGRATION (NOT INCLUDED): add family_id to persons/calendar_events/event_persons,

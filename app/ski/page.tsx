@@ -117,6 +117,7 @@ export default function SkiPage() {
     <div style={{maxWidth:960,margin:"auto"}}>
       <a href="/" style={{color:"#315e9c"}}>← Till familjen</a>
       <h1>Alpint – tävlingar</h1>
+      <p><a href="/ski/status" style={{color:"#315e9c",fontWeight:700}}>Kontrollera källor och synkroniseringsstatus →</a></p>
       <p><a href="/ski/sources" style={{color:"#315e9c",fontWeight:700}}>Visa relevanta tävlingar och läger från Skidförbundet →</a></p>
       <p><a href="/ski/import" style={{color:"#315e9c",fontWeight:700}}>Importera tävlingar från kalenderfil (.ics) →</a></p>
       <p style={{color:"#64748b"}}>Elsa · U16 · NSK / Region 5 &nbsp;|&nbsp; Alva · U14 · NSK / Region 5</p>

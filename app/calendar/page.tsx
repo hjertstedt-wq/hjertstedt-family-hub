@@ -36,6 +36,7 @@ export default function CalendarPage() {
   const [location, setLocation] = useState("");
   const [participantIds, setParticipantIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [formError, setFormError] = useState("");
   const [formSuccess, setFormSuccess] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -103,40 +104,81 @@ export default function CalendarPage() {
       return;
     }
     setSaving(true);
-    const { data, error: insertError } = await supabase.from("calendar_events")
-      .insert({ title: title.trim(), starts_at: (allDay ? new Date(eventDate + "T00:00:00") : start).toISOString(), ends_at: (allDay ? new Date(new Date(endDate + "T00:00:00").getTime() + 86400000) : end).toISOString(), location: location.trim() || null, source: "manual" })
-      .select("id,title,starts_at,ends_at,location,category,source").single();
+    const payload = { title: title.trim(), starts_at: (allDay ? new Date(eventDate + "T00:00:00") : start).toISOString(), ends_at: (allDay ? new Date(new Date(endDate + "T00:00:00").getTime() + 86400000) : end).toISOString(), location: location.trim() || null };
+    const query = editingId
+      ? supabase.from("calendar_events").update(payload).eq("id", editingId).eq("source", "manual")
+      : supabase.from("calendar_events").insert({ ...payload, source: "manual" });
+    const { data, error: insertError } = await query.select("id,title,starts_at,ends_at,location,category,source").single();
     if (insertError || !data) {
       setFormError(insertError?.message ?? "Aktiviteten kunde inte sparas.");
       setSaving(false);
       return;
+    }
+    if (editingId) {
+      const { error: clearError } = await supabase.from("event_persons").delete().eq("event_id", data.id);
+      if (clearError) {
+        setFormError("Aktiviteten uppdaterades, men deltagarna kunde inte ändras: " + clearError.message);
+        setEvents(current => current.map(item => item.id === data.id ? data : item));
+        setSaving(false);
+        return;
+      }
     }
     if (participantIds.length) {
       const { error: participantsError } = await supabase.from("event_persons")
         .insert(participantIds.map(person_id => ({ event_id: data.id, person_id })));
       if (participantsError) {
         setFormError("Aktiviteten sparades, men deltagarna kunde inte kopplas: " + participantsError.message);
-        setEvents(current => [...current, data]);
+        setEvents(current => editingId ? current.map(item => item.id === data.id ? data : item) : [...current, data]);
         setSaving(false);
         return;
       }
     }
-    setEvents(current => [...current, data]);
+    setEvents(current => editingId ? current.map(item => item.id === data.id ? data : item) : [...current, data]);
     setSelected(eventDate);
     setMonth(new Date(start.getFullYear(), start.getMonth(), 1));
     setShowForm(false);
+    setEditingId(null);
     setTitle("");
     setLocation("");
     setParticipantIds([]);
-    setFormSuccess("Aktiviteten har sparats.");
+    setFormSuccess(editingId ? "Ändringarna har sparats." : "Aktiviteten har sparats.");
     setSaving(false);
   };
   const chooseDate = (key: string) => {
     setSelected(key);
+    setEditingId(null);
+    setTitle("");
+    setLocation("");
+    setParticipantIds([]);
+    setAllDay(false);
     setEventDate(key);
     setEndDate(key);
     setFormError("");
     setShowForm(true);
+  };
+  const editEvent = async (event: CalendarEvent) => {
+    if (event.source !== "manual") return;
+    setEditingId(event.id);
+    setFormError("");
+    setFormSuccess("");
+    setTitle(event.title);
+    setLocation(event.location ?? "");
+    const start = new Date(event.starts_at);
+    const end = new Date(event.ends_at);
+    const isAllDay = start.getHours() === 0 && start.getMinutes() === 0 && end.getHours() === 0 && end.getMinutes() === 0;
+    const lastDay = new Date(end);
+    if (isAllDay) lastDay.setDate(lastDay.getDate() - 1);
+    setAllDay(isAllDay);
+    setEventDate(dateKey(start));
+    setEndDate(dateKey(lastDay));
+    setStartTime(start.toTimeString().slice(0, 5));
+    setEndTime(end.toTimeString().slice(0, 5));
+    setParticipantIds([]);
+    setShowForm(true);
+    const { data, error: membersError } = await supabase.from("event_persons").select("person_id").eq("event_id", event.id);
+    if (membersError) setFormError("Deltagarna kunde inte hämtas: " + membersError.message);
+    else setParticipantIds((data ?? []).map(item => item.person_id));
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
   const deleteEvent = async (event: CalendarEvent) => {
     if (event.source !== "manual" || deletingId) return;
@@ -175,7 +217,7 @@ export default function CalendarPage() {
         </div>
         {formSuccess && <p role="status" style={{ color: "#246b45" }}>{formSuccess}</p>}
         {showForm && <section style={{ background: "white", borderRadius: 20, padding: 24, marginTop: 18 }}>
-          <h2 style={{ marginTop: 0 }}>Ny aktivitet</h2>
+          <h2 style={{ marginTop: 0 }}>{editingId ? "Redigera aktivitet" : "Ny aktivitet"}</h2>
           <form onSubmit={saveEvent} style={{ display: "grid", gap: 14 }}>
             <label>Rubrik <input required value={title} onChange={e => setTitle(e.target.value)} style={inputStyle} placeholder="T.ex. Träning" /></label>
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
@@ -198,8 +240,8 @@ export default function CalendarPage() {
             </fieldset>
             {formError && <p role="alert" style={{ color: "#b42318" }}>{formError}</p>}
             <div style={{ display: "flex", gap: 12 }}>
-              <button type="submit" disabled={saving} style={{ background: "#315e9c", color: "white", border: 0, borderRadius: 10, padding: "12px 20px", cursor: "pointer" }}>{saving ? "Sparar..." : "Spara aktivitet"}</button>
-              <button type="button" onClick={() => setShowForm(false)} style={{ background: "#f2f5fa", border: 0, borderRadius: 10, padding: "12px 20px", cursor: "pointer" }}>Avbryt</button>
+              <button type="submit" disabled={saving} style={{ background: "#315e9c", color: "white", border: 0, borderRadius: 10, padding: "12px 20px", cursor: "pointer" }}>{saving ? "Sparar..." : editingId ? "Spara ändringar" : "Spara aktivitet"}</button>
+              <button type="button" onClick={() => { setShowForm(false); setEditingId(null); }} style={{ background: "#f2f5fa", border: 0, borderRadius: 10, padding: "12px 20px", cursor: "pointer" }}>Avbryt</button>
             </div>
           </form>
         </section>}
@@ -243,11 +285,17 @@ export default function CalendarPage() {
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 8 }}>
                 <small style={{ color: "#8492a6" }}>Källa: {event.source}</small>
                 {event.source === "manual" && (
+                  <div style={{ display: "flex", gap: 8 }}>
+                  <button type="button" disabled={saving || deletingId !== null} onClick={() => void editEvent(event)}
+                    style={{ color: "#315e9c", border: "1px solid #c5d5ee", background: "#fff", borderRadius: 8, padding: "7px 11px", cursor: "pointer" }}>
+                    Redigera
+                  </button>
                   <button type="button" disabled={deletingId !== null} onClick={() => void deleteEvent(event)}
                     aria-label={"Radera " + event.title}
                     style={{ color: "#b42318", border: "1px solid #f3c6c6", background: "#fff", borderRadius: 8, padding: "7px 11px", cursor: deletingId ? "wait" : "pointer" }}>
                     {deletingId === event.id ? "Raderar..." : "Radera"}
                   </button>
+                  </div>
                 )}
               </div>
             </article>)

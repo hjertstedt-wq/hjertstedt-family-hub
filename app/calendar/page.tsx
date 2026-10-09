@@ -16,6 +16,8 @@ type CalendarEvent = {
   source: string;
 };
 
+const familyColor = (name: string) => name.toLowerCase().includes("elsa") ? "#dceafd" : name.toLowerCase().includes("alva") ? "#fce3ed" : name.toLowerCase().includes("magdalena") ? "#f3e8ff" : "#dcf3e6";
+const addDays = (date: Date, count: number) => { const next = new Date(date); next.setDate(next.getDate() + count); return next; };
 const weekdays = ["Mån", "Tis", "Ons", "Tor", "Fre", "Lör", "Sön"];
 const monthLabel = new Intl.DateTimeFormat("sv-SE", { month: "long", year: "numeric" });
 const dateKey = (date: Date) => [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"), String(date.getDate()).padStart(2, "0")].join("-");
@@ -45,6 +47,10 @@ export default function CalendarPage() {
   const [deleteError, setDeleteError] = useState("");
   const [month, setMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [selected, setSelected] = useState(() => dateKey(new Date()));
+  const [view, setView] = useState<"month" | "week" | "day">("month");
+  const [personFilter, setPersonFilter] = useState("all");
+  const [search, setSearch] = useState("");
+  const [repeatWeeks, setRepeatWeeks] = useState(1);
 
   useEffect(() => {
     async function loadEvents() {
@@ -70,15 +76,31 @@ export default function CalendarPage() {
     void loadEvents();
   }, [router]);
 
+  const visibleEvents = useMemo(() => events.filter(event => {
+    if (personFilter !== "all" && !(eventParticipants[event.id] ?? []).includes(personFilter)) return false;
+    const query = search.trim().toLocaleLowerCase("sv-SE");
+    if (!query) return true;
+    return [event.title, event.location ?? "", dateKey(new Date(event.starts_at)), new Date(event.starts_at).toLocaleDateString("sv-SE")].some(value => value.toLocaleLowerCase("sv-SE").includes(query));
+  }), [events, eventParticipants, personFilter, search]);
+  const eventColor = (event: CalendarEvent) => {
+    const member = persons.find(p => (eventParticipants[event.id] ?? []).includes(p.id));
+    return member ? familyColor(member.name) : "#e5e7eb";
+  };
   const calendarDays = useMemo(() => {
     const firstWeekday = (month.getDay() + 6) % 7;
     const start = new Date(month.getFullYear(), month.getMonth(), 1 - firstWeekday);
+    if (view === "day") return [new Date(selected + "T12:00:00")];
+    if (view === "week") {
+      const chosen = new Date(selected + "T12:00:00");
+      const monday = addDays(chosen, -((chosen.getDay() + 6) % 7));
+      return Array.from({ length: 7 }, (_, index) => addDays(monday, index));
+    }
     return Array.from({ length: 42 }, (_, index) => new Date(start.getFullYear(), start.getMonth(), start.getDate() + index));
-  }, [month]);
+  }, [month, view, selected]);
 
   const eventsByDay = useMemo(() => {
     const result: Record<string, CalendarEvent[]> = {};
-    for (const event of events) {
+    for (const event of visibleEvents) {
       const start = new Date(event.starts_at);
       const end = new Date(event.ends_at);
       if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) continue;
@@ -96,7 +118,7 @@ export default function CalendarPage() {
       }
     }
     return result;
-  }, [events]);
+  }, [visibleEvents]);
 
   const selectedEvents = eventsByDay[selected] ?? [];
   const saveEvent = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -111,6 +133,39 @@ export default function CalendarPage() {
     }
     setSaving(true);
     const payload = { title: title.trim(), starts_at: (allDay ? new Date(eventDate + "T00:00:00") : start).toISOString(), ends_at: (allDay ? new Date(new Date(endDate + "T00:00:00").getTime() + 86400000) : end).toISOString(), location: location.trim() || null };
+    if (!editingId && repeatWeeks > 1) {
+      const duration = new Date(payload.ends_at).getTime() - new Date(payload.starts_at).getTime();
+      const first = new Date(payload.starts_at);
+      const rows = Array.from({ length: repeatWeeks }, (_, i) => {
+        const occurrence = addDays(first, i * 7);
+        return { ...payload, starts_at: occurrence.toISOString(), ends_at: new Date(occurrence.getTime() + duration).toISOString(), source: "manual" };
+      });
+      const { data: created, error: seriesError } = await supabase.from("calendar_events").insert(rows).select("id,title,starts_at,ends_at,location,category,source");
+      if (seriesError || !created || created.length !== rows.length) {
+        setFormError("Kunde inte skapa återkommande aktiviteter: " + (seriesError?.message ?? "Ofullständigt svar"));
+        setSaving(false);
+        return;
+      }
+      if (participantIds.length) {
+        const links = created.flatMap(item => participantIds.map(person_id => ({ event_id: item.id, person_id })));
+        const { error: linkError } = await supabase.from("event_persons").insert(links);
+        if (linkError) {
+          await supabase.from("calendar_events").delete().in("id", created.map(item => item.id));
+          setFormError("Deltagarna kunde inte kopplas. Serien har återställts: " + linkError.message);
+          setSaving(false);
+          return;
+        }
+      }
+      setEvents(current => [...current, ...created]);
+      setEventParticipants(current => { const next = { ...current }; for (const item of created) next[item.id] = participantIds; return next; });
+      setShowForm(false);
+      setSelected(eventDate);
+      setMonth(new Date(start.getFullYear(), start.getMonth(), 1));
+      setRepeatWeeks(1);
+      setFormSuccess(repeatWeeks + " veckovisa aktiviteter har sparats.");
+      setSaving(false);
+      return;
+    }
     const query = editingId
       ? supabase.from("calendar_events").update(payload).eq("id", editingId).eq("source", "manual")
       : supabase.from("calendar_events").insert({ ...payload, source: "manual" });
@@ -160,6 +215,7 @@ export default function CalendarPage() {
     setLocation("");
     setParticipantIds([]);
     setAllDay(false);
+    setRepeatWeeks(1);
     setEventDate(key);
     setEndDate(key);
     setFormError("");
@@ -168,6 +224,7 @@ export default function CalendarPage() {
   const editEvent = async (event: CalendarEvent) => {
     if (event.source !== "manual") return;
     setEditingId(event.id);
+    setRepeatWeeks(1);
     setFormError("");
     setFormSuccess("");
     setTitle(event.title);
@@ -232,6 +289,19 @@ export default function CalendarPage() {
         <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 22 }}>
           <button onClick={() => { chooseDate(selected); }} style={{ background: "#315e9c", color: "white", border: 0, borderRadius: 10, padding: "13px 18px", fontWeight: 700, cursor: "pointer" }}>+ Lägg till aktivitet</button>
         </div>
+        <section aria-label="Kalenderfilter" style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 16, alignItems: "center" }}>
+          <div style={{ display: "flex", gap: 4 }}>
+            {(["month", "week", "day"] as const).map(mode => <button key={mode} type="button" onClick={() => setView(mode)} aria-pressed={view === mode} style={{ padding: "10px 12px", borderRadius: 9, border: "1px solid #cbd5e1", background: view === mode ? "#315e9c" : "white", color: view === mode ? "white" : "#17253b", cursor: "pointer" }}>{mode === "month" ? "Månad" : mode === "week" ? "Vecka" : "Dag"}</button>)}
+          </div>
+          <select aria-label="Filtrera familjemedlem" value={personFilter} onChange={e => setPersonFilter(e.target.value)} style={{ ...inputStyle, width: "auto", marginTop: 0 }}>
+            <option value="all">Hela familjen</option>
+            {persons.map(person => <option key={person.id} value={person.id}>{person.name}</option>)}
+          </select>
+          <input aria-label="Sök aktiviteter" placeholder="Sök namn, plats eller datum" value={search} onChange={e => setSearch(e.target.value)} style={{ ...inputStyle, width: "min(100%, 260px)", marginTop: 0 }} />
+        </section>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 10 }}>
+          {persons.map(person => <span key={person.id} style={{ fontSize: 12, borderRadius: 8, background: familyColor(person.name), padding: "5px 9px" }}>{person.name}</span>)}
+        </div>
         {formSuccess && <p role="status" style={{ color: "#246b45" }}>{formSuccess}</p>}
         {showForm && <section style={{ background: "white", borderRadius: 20, padding: 24, marginTop: 18 }}>
           <h2 style={{ marginTop: 0 }}>{editingId ? "Redigera aktivitet" : "Ny aktivitet"}</h2>
@@ -246,6 +316,16 @@ export default function CalendarPage() {
               <label style={{ flex: 1 }}>Starttid <input required type="time" value={startTime} onChange={e => setStartTime(e.target.value)} style={inputStyle} /></label>
               <label style={{ flex: 1 }}>Sluttid <input required type="time" value={endTime} onChange={e => setEndTime(e.target.value)} style={inputStyle} /></label>
             </div>}
+            {!editingId && <label>Upprepa varje vecka
+              <select value={repeatWeeks} onChange={e => setRepeatWeeks(Number(e.target.value))} style={inputStyle}>
+                <option value={1}>Upprepas inte</option>
+                <option value={4}>4 veckor</option>
+                <option value={8}>8 veckor</option>
+                <option value={12}>12 veckor</option>
+                <option value={26}>26 veckor</option>
+                <option value={52}>52 veckor</option>
+              </select>
+            </label>}
             <label>Plats <input value={location} onChange={e => setLocation(e.target.value)} style={inputStyle} placeholder="Valfritt" /></label>
             <fieldset style={{ border: "1px solid #e1e7ef", borderRadius: 10, padding: 14 }}>
               <legend>Familjemedlemmar (valfritt)</legend>
@@ -268,8 +348,8 @@ export default function CalendarPage() {
             <h2 style={{ textTransform: "capitalize", margin: 0, fontSize: 22, textAlign: "center" }}>{monthLabel.format(month)}</h2>
             <button onClick={() => moveMonth(1)} aria-label="Nästa månad" style={navStyle}>›</button>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 5 }}>
-            {weekdays.map(day => <div key={day} style={{ textAlign: "center", fontSize: 12, color: "#64748b", fontWeight: 700, padding: "8px 0" }}>{day}</div>)}
+          <div style={{ display: "grid", gridTemplateColumns: view === "day" ? "minmax(0, 1fr)" : "repeat(7, minmax(0, 1fr))", gap: 5 }}>
+            {view !== "day" && weekdays.map(day => <div key={day} style={{ textAlign: "center", fontSize: 12, color: "#64748b", fontWeight: 700, padding: "8px 0" }}>{day}</div>)}
             {calendarDays.map(day => {
               const key = dateKey(day);
               const dayEvents = eventsByDay[key] ?? [];
@@ -291,7 +371,7 @@ export default function CalendarPage() {
                   {dayEvents.map(event => (
                     <button type="button" key={event.id} onClick={() => showDetails(event)}
                       title={event.title} aria-label={"Visa aktivitet: " + event.title}
-                      style={{ background: "#dce8fb", color: "#244c82", border: 0, borderRadius: 4, padding: "4px 5px", fontSize: 11, textAlign: "left", cursor: "pointer", overflowWrap: "anywhere" }}>
+                      style={{ background: eventColor(event), color: "#244c82", border: 0, borderRadius: 4, padding: "4px 5px", fontSize: 11, textAlign: "left", cursor: "pointer", overflowWrap: "anywhere" }}>
                       {event.title}
                     </button>
                   ))}

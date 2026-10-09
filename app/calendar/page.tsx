@@ -4,7 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../supabase";
 
-type Person = { id: string; name: string };\n\ntype CalendarEvent = {
+type Person = { id: string; name: string };
+
+type CalendarEvent = {
   id: string;
   title: string;
   starts_at: string;
@@ -27,6 +29,8 @@ export default function CalendarPage() {
   const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState("");
   const [eventDate, setEventDate] = useState(() => dateKey(new Date()));
+  const [endDate, setEndDate] = useState(() => dateKey(new Date()));
+  const [allDay, setAllDay] = useState(false);
   const [startTime, setStartTime] = useState("17:00");
   const [endTime, setEndTime] = useState("18:00");
   const [location, setLocation] = useState("");
@@ -91,14 +95,14 @@ export default function CalendarPage() {
     setFormError("");
     setFormSuccess("");
     const start = new Date(eventDate + "T" + startTime);
-    const end = new Date(eventDate + "T" + endTime);
-    if (!title.trim() || !Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || end <= start) {
+    const end = new Date(endDate + "T" + endTime);
+    if (!title.trim() || !Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || (!allDay && end <= start) || endDate < eventDate) {
       setFormError("Ange rubrik och en sluttid efter starttiden.");
       return;
     }
     setSaving(true);
     const { data, error: insertError } = await supabase.from("calendar_events")
-      .insert({ title: title.trim(), starts_at: start.toISOString(), ends_at: end.toISOString(), location: location.trim() || null, source: "manual" })
+      .insert({ title: title.trim(), starts_at: (allDay ? new Date(eventDate + "T00:00:00") : start).toISOString(), ends_at: (allDay ? new Date(new Date(endDate + "T00:00:00").getTime() + 86400000) : end).toISOString(), location: location.trim() || null, source: "manual" })
       .select("id,title,starts_at,ends_at,location,category,source").single();
     if (insertError || !data) {
       setFormError(insertError?.message ?? "Aktiviteten kunde inte sparas.");
@@ -125,6 +129,13 @@ export default function CalendarPage() {
     setFormSuccess("Aktiviteten har sparats.");
     setSaving(false);
   };
+  const chooseDate = (key: string) => {
+    setSelected(key);
+    setEventDate(key);
+    setEndDate(key);
+    setFormError("");
+    setShowForm(true);
+  };
   const moveMonth = (offset: number) => {
     const next = new Date(month.getFullYear(), month.getMonth() + offset, 1);
     setMonth(next);
@@ -141,15 +152,19 @@ export default function CalendarPage() {
         <p style={{ color: "#64748b", marginTop: 0 }}>Gemensam översikt över familjens aktiviteter.</p>
 
         <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 22 }}>
-          <button onClick={() => { setEventDate(selected); setFormError(""); setShowForm(true); }} style={{ background: "#315e9c", color: "white", border: 0, borderRadius: 10, padding: "13px 18px", fontWeight: 700, cursor: "pointer" }}>+ Lägg till aktivitet</button>
+          <button onClick={() => { chooseDate(selected); }} style={{ background: "#315e9c", color: "white", border: 0, borderRadius: 10, padding: "13px 18px", fontWeight: 700, cursor: "pointer" }}>+ Lägg till aktivitet</button>
         </div>
         {formSuccess && <p role="status" style={{ color: "#246b45" }}>{formSuccess}</p>}
         {showForm && <section style={{ background: "white", borderRadius: 20, padding: 24, marginTop: 18 }}>
           <h2 style={{ marginTop: 0 }}>Ny aktivitet</h2>
           <form onSubmit={saveEvent} style={{ display: "grid", gap: 14 }}>
             <label>Rubrik <input required value={title} onChange={e => setTitle(e.target.value)} style={inputStyle} placeholder="T.ex. Träning" /></label>
-            <label>Datum <input required type="date" value={eventDate} onChange={e => setEventDate(e.target.value)} style={inputStyle} /></label>
-            <div style={{ display: "flex", gap: 12 }}>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+              <label style={{ flex: 1 }}>Från datum <input required type="date" value={eventDate} onChange={e => { setEventDate(e.target.value); if (e.target.value > endDate) setEndDate(e.target.value); }} style={inputStyle} /></label>
+              <label style={{ flex: 1 }}>Till och med datum <input required type="date" min={eventDate} value={endDate} onChange={e => setEndDate(e.target.value)} style={inputStyle} /></label>
+            </div>
+            <label style={{ display: "flex", gap: 8, alignItems: "center" }}><input type="checkbox" checked={allDay} onChange={e => setAllDay(e.target.checked)} />Heldag / flera hela dagar</label>
+            {!allDay && <div style={{ display: "flex", gap: 12 }}>
               <label style={{ flex: 1 }}>Starttid <input required type="time" value={startTime} onChange={e => setStartTime(e.target.value)} style={inputStyle} /></label>
               <label style={{ flex: 1 }}>Sluttid <input required type="time" value={endTime} onChange={e => setEndTime(e.target.value)} style={inputStyle} /></label>
             </div>
@@ -183,7 +198,7 @@ export default function CalendarPage() {
               const inMonth = day.getMonth() === month.getMonth();
               const isSelected = key === selected;
               return (
-                <button key={key} onClick={() => setSelected(key)} aria-pressed={isSelected} style={{
+                <button key={key} onClick={() => chooseDate(key)} aria-pressed={isSelected} style={{
                   minHeight: 80, textAlign: "left", padding: 7, borderRadius: 10, cursor: "pointer",
                   border: isSelected ? "2px solid #3766b1" : "1px solid #e8edf4",
                   background: isSelected ? "#eef4ff" : inMonth ? "#fff" : "#f7f8fb",

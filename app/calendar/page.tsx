@@ -276,16 +276,26 @@ export default function CalendarPage() {
               const inMonth = day.getMonth() === month.getMonth();
               const isSelected = key === selected;
               return (
-                <button key={key} onClick={() => { if (dayEvents.length) showDetails(dayEvents[0]); else chooseDate(key); }} aria-pressed={isSelected} style={{
-                  minHeight: 80, textAlign: "left", padding: 7, borderRadius: 10, cursor: "pointer",
+                <div key={key} style={{
+                  minHeight: 84, padding: 6, borderRadius: 10,
                   border: isSelected ? "2px solid #3766b1" : "1px solid #e8edf4",
                   background: isSelected ? "#eef4ff" : inMonth ? "#fff" : "#f7f8fb",
-                  color: inMonth ? "#17253b" : "#9ca8b9"
+                  color: inMonth ? "#17253b" : "#9ca8b9",
+                  display: "flex", flexDirection: "column", gap: 4
                 }}>
-                  <span style={{ fontWeight: 700, fontSize: 13 }}>{day.getDate()}</span>
-                  {dayEvents.slice(0, 2).map(event => <div key={event.id} style={{ marginTop: 5, background: "#dce8fb", color: "#244c82", borderRadius: 4, padding: "3px 4px", fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{event.title}</div>)}
-                  {dayEvents.length > 2 && <div style={{ fontSize: 10, marginTop: 4 }}>+{dayEvents.length - 2} till</div>}
-                </button>
+                  <button type="button" onClick={() => chooseDate(key)}
+                    aria-label={"Lägg till aktivitet " + day.toLocaleDateString("sv-SE")}
+                    style={{ alignSelf: "flex-start", border: 0, background: "transparent", color: "inherit", fontWeight: 700, fontSize: 13, cursor: "pointer", padding: "2px 4px" }}>
+                    {day.getDate()} <span style={{ fontSize: 11, opacity: 0.65 }}>+</span>
+                  </button>
+                  {dayEvents.map(event => (
+                    <button type="button" key={event.id} onClick={() => showDetails(event)}
+                      title={event.title} aria-label={"Visa aktivitet: " + event.title}
+                      style={{ background: "#dce8fb", color: "#244c82", border: 0, borderRadius: 4, padding: "4px 5px", fontSize: 11, textAlign: "left", cursor: "pointer", overflowWrap: "anywhere" }}>
+                      {event.title}
+                    </button>
+                  ))}
+                </div>
               );
             })}
           </div>

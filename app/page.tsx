@@ -4,6 +4,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
 
+type UpcomingEvent = { id: string; title: string; starts_at: string; ends_at: string; location: string | null };
 type Person = {
   id: string;
   name: string | null;
@@ -12,6 +13,8 @@ type Person = {
 
 export default function Home() {
   const [persons, setPersons] = useState<Person[]>([]);
+  const [upcoming, setUpcoming] = useState<UpcomingEvent[]>([]);
+  const [calendarError, setCalendarError] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -36,6 +39,12 @@ export default function Home() {
       if (error) setError(error.message);
       else setPersons(data ?? []);
 
+      const { data: nextEvents, error: upcomingError } = await supabase.from("calendar_events")
+        .select("id,title,starts_at,ends_at,location")
+        .gte("ends_at", new Date().toISOString())
+        .order("starts_at", { ascending: true }).limit(6);
+      if (upcomingError) setCalendarError("Kunde inte läsa kommande aktiviteter.");
+      else setUpcoming(nextEvents ?? []);
       setLoading(false);
     }
 
@@ -245,6 +254,24 @@ export default function Home() {
           )}
         </section>
 
+        <section style={{ background: "white", borderRadius: 20, padding: 24, marginBottom: 20 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+            <h2 style={{ margin: 0 }}>Kommande aktiviteter</h2>
+            <a href="/calendar" style={{ color: "#315e9c", fontWeight: 700 }}>Visa kalender →</a>
+          </div>
+          {calendarError && <p role="alert" style={{ color: "#b42318" }}>{calendarError}</p>}
+          {loading ? <p>Laddar kalender...</p> : upcoming.length === 0 ? <p style={{ color: "#64748b" }}>Inga kommande aktiviteter registrerade.</p> :
+            <div style={{ display: "grid", gap: 8, marginTop: 16 }}>
+              {upcoming.map(event => <a key={event.id} href={"/calendar?event=" + encodeURIComponent(event.id)}
+                style={{ display: "block", padding: 12, borderRadius: 10, background: "#f4f6fa", color: "#17253b", textDecoration: "none" }}>
+                <strong>{event.title}</strong>
+                <div style={{ color: "#64748b", fontSize: 13, marginTop: 4 }}>
+                  {new Date(event.starts_at).toLocaleDateString("sv-SE", { day: "numeric", month: "short" })} · {new Date(event.starts_at).toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" })}
+                  {event.location ? " · " + event.location : ""}
+                </div>
+              </a>)}
+            </div>}
+        </section>
         <div style={{
           display: "grid",
           gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",

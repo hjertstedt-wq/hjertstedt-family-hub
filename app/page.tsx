@@ -284,7 +284,8 @@ export default function Home() {
               background: "white",
               borderRadius: 20,
               padding: 24,
-              minHeight: 145
+              minHeight: 145,
+              cursor: "href" in item ? "pointer" : "default"
             }}>
               <div style={{ fontSize: 30 }}>{item.icon}</div>
               <h2 style={{ fontSize: 20, marginBottom: 8 }}>
@@ -297,8 +298,8 @@ export default function Home() {
               }}>
                 {item.text}
               </p>
-              <small style={{ color: "#8492a6" }}>
-                Kommer snart
+              <small style={{ color: "href" in item ? "#2563eb" : "#8492a6", fontWeight: "href" in item ? 600 : 400 }}>
+                {"href" in item ? "Öppna kalender →" : "Kommer snart"}
               </small>
             </section>
           ))}

@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { requirePilotIcloudUser } from "../pilot-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,7 +19,9 @@ function trustedIcloudHost(hostname: string) {
   return hostname === "caldav.icloud.com" || /^p\d+-caldav\.icloud\.com$/i.test(hostname);
 }
 
-export async function GET() {
+export async function GET(req:NextRequest) {
+  const denied=await requirePilotIcloudUser(req);
+  if(denied)return denied;
   const appleId = process.env.ICLOUD_APPLE_ID;
   const password = process.env.ICLOUD_APP_PASSWORD;
   if (!appleId || !password) return NextResponse.json({ error: "iCloud är inte konfigurerat." }, { status: 503 });

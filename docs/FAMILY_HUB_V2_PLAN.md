@@ -27,11 +27,20 @@ Familjen ska kunna öppna appen på iPhone och snabbt se vem som ska vart, vilka
 - Migrera/arkivera testpersoner först efter granskning; inga destruktiva automatiska databasändringar.
 - Föräldrars adminrättigheter och begränsad åtkomst för barn, enligt beslut.
 
-### P3 — Fotboll och alpint
+### P3 — Alpint först: träning och tävling för Elsa och Alva
+- Utgå från befintlig /ski-vy som redan hanterar tävlingsförslag, godkännande och deltagare; bygg ut den, inte en konkurrerande vy.
+- Två personvyer: Elsa (U16 säsong 2026/27) och Alva (U14 säsong 2026/27).
+- Två aktivitetsflöden: träning (snö, teknik, fys, läger) och tävling (SL, GS, SG, DH när relevant).
+- Träning ska ha start/slut, plats, träningsgrupp, deltagare, anteckning och status planerad/bekräftad/inställd.
+- Tävling ska ha officiell källa, tävlingsdatum, disciplin, klass, sista anmälan, deltagare och status förslag/godkänd/anmäld.
+- Officiella tävlingskällor: Svenska Skidförbundets TA, relevanta Region 5- och klubbkällor. Inga påhittade datum.
+- Import idempotent och källspårbar; preliminära tävlingar syns inte som bokade i huvudkalendern.
+- Kalenderkrockar mellan alpina pass, tävlingar och iCloud. Förbered framtida teknikanalys och träningsmål.
+
+### P3b — Övriga sportintegrationer efter alpint
+- **Alvas SportsAdmin får inte glömmas**: identifiera förening/lag och säker läsmetod innan koppling; ingen otestad scraping eller inloggningsdelning.
 - Svenskalag: endast fotboll, lagen 2011, 2012 och junior damer; filter för Elsa anmäld.
-- Import ska vara idempotent och källspårbar; tydlig skillnad på bekräftade och preliminära aktiviteter.
-- Alpint: separata vyer för Elsa och Alva, träningar/tävlingar och källhänvisning till officiella kalendrar.
-- Krockkontroll mellan sporter, iCloud och manuella händelser.
+- För båda källor: källa, senast synkad, dublettskydd och tydlig status.
 
 ### P4 — Familjeassistent och iPhone
 - Veckobrief: nästa sju dagar, schemakrockar, restider endast när adresser/ruttdata är verifierade.

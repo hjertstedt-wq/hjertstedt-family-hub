@@ -55,7 +55,7 @@ export async function GET() {
     const home = resolved(principal, homeHref);
     const listXml = await propfind(home, '<?xml version="1.0"?><d:propfind xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:prop><d:displayname/><d:resourcetype/></d:prop></d:propfind>', "1");
     const calendars = responses(listXml).filter(r => /<(?:[\w.-]+:)?calendar\s*\/?\s*>/i.test(xmlText(r, "resourcetype") ?? "")).map(r => ({ name: decodeXml(xmlText(r, "displayname") ?? ""), href: xmlText(r, "href") })).filter(c => c.href);
-    return NextResponse.json({ status: "discovered", calendars: calendars.map(c => ({ name: c.name, isFamilj: c.name.trim().toLocaleLowerCase("sv-SE") === "familj" })) }, { headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json({ status: "discovered", diagnostics: { responseCount: entries.length, calendarResourceCount: calendars.length, namedResources: entries.map(r => ({ name: decodeXml(xmlText(r, "displayname") ?? ""), calendarTag: /<(?:[\\w.-]+:)?calendar\\s*\\/?\\s*>/i.test(xmlText(r, "resourcetype") ?? ""), hasHref: Boolean(xmlText(r, "href")) })) }, calendars: calendars.map(c => ({ name: c.name, isFamilj: c.name.trim().toLocaleLowerCase("sv-SE") === "familj" })) }, { headers: { "Cache-Control": "no-store" } });
   } catch (caught) {
     const message = caught instanceof Error ? caught.message : "unknown";
     const code = /^http_\\d+$/.test(message) ? message : ["redirect_missing_location", "too_many_redirects", "No principal", "No calendar home", "Unexpected CalDAV host", "Unexpected CalDAV redirect"].includes(message) ? message : "connection_failed";

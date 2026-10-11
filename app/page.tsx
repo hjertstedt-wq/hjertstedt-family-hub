@@ -298,8 +298,9 @@ export default function Home() {
             },
             {
               icon: "✨",
-              title: "AI-assistent",
-              text: "Fråga om familjens aktiviteter"
+              title: "Smart familjeassistent",
+              text: "Familjeprofiler, kommande aktiviteter och möjliga schemakrockar",
+              href: "/family"
             },
             {
               icon: "⚙️",

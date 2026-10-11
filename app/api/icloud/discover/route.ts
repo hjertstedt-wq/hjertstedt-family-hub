@@ -15,7 +15,7 @@ function responses(xml: string): string[] {
   return [...xml.matchAll(/<(?:[\w.-]+:)?response(?:\s[^>]*)?>([\s\S]*?)<\/(?:[\w.-]+:)?response\s*>/gi)].map(m => m[1]);
 }
 function trustedIcloudHost(hostname: string) {
-  return hostname === "caldav.icloud.com" || /^p\\d+-caldav\\.icloud\\.com$/i.test(hostname);
+  return hostname === "caldav.icloud.com" || /^p\d+-caldav\.icloud\.com$/i.test(hostname);
 }
 
 export async function GET() {

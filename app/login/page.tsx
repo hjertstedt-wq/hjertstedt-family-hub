@@ -5,6 +5,7 @@ import { supabase } from "../supabase";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
+  const [authError] = useState(() => typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("auth_error") ?? "");
   const [message, setMessage] = useState("");
 
   async function login() {
@@ -53,6 +54,7 @@ export default function LoginPage() {
         Skicka inloggningslänk
       </button>
 
+      {authError && <p role="alert" style={{ color: "#b42318" }}>Inloggningen kunde inte slutföras ({authError}). Begär en ny länk och öppna den i samma Safari-fönster.</p>}
       {message && <p>{message}</p>}
     </main>
   );

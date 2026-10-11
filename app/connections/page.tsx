@@ -1,5 +1,5 @@
 "use client";
-import {useMemo,useState} from "react";
+import {useEffect,useMemo,useState} from "react";
 import {providers,type ProviderDefinition} from "../lib/providers";
 import {supabase} from "../supabase";
 const theme={ink:"#172b44",muted:"#62748b",accent:"#315e9c"};
@@ -23,7 +23,7 @@ export default function ConnectionsPage(){
  const [category,setCategory]=useState("Alla");
  const [step,setStep]=useState(1);
  const [signedIn,setSignedIn]=useState<boolean|null>(null);
- useState(()=>{if(typeof window!=="undefined")void supabase.auth.getUser().then(({data})=>setSignedIn(Boolean(data.user)));});
+ useEffect(()=>{let active=true;void supabase.auth.getUser().then(({data})=>{if(active)setSignedIn(Boolean(data.user));});return()=>{active=false;};},[]);
  const visible=useMemo(()=>providers.filter(p=>category==="Alla"||p.category===category),[category]);
  return <main style={{background:"linear-gradient(180deg,#eaf2fd 0%,#f5f7fb 320px)",minHeight:"100vh",fontFamily:"Arial,sans-serif",color:theme.ink,padding:"24px 16px 70px"}}>
   <div style={{maxWidth:1050,margin:"0 auto"}}>

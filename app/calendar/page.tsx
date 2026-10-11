@@ -25,6 +25,8 @@ const dateKey = (date: Date) => [date.getFullYear(), String(date.getMonth() + 1)
 export default function CalendarPage() {
   const router = useRouter();
   const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [icloudEvents, setIcloudEvents] = useState<CalendarEvent[]>([]);
+  const [icloudStatus, setIcloudStatus] = useState("Hämtar iCloud-kalendrar...");
   const [googleStatus, setGoogleStatus] = useState("");
   const [googlePreview, setGooglePreview] = useState<{title: string; starts_at?: string}[]>([]);
   const [googleBusy, setGoogleBusy] = useState(false);
@@ -90,13 +92,34 @@ export default function CalendarPage() {
     void loadEvents();
   }, [router]);
 
-  const visibleEvents = useMemo(() => events.filter(event => {
+  useEffect(() => {
+    let active = true;
+    async function refreshIcloud() {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) return;
+        const response = await fetch("/api/icloud/events", { headers: { Authorization: "Bearer " + session.access_token }, cache: "no-store" });
+        const data = await response.json();
+        if (!active) return;
+        if (!response.ok) { setIcloudStatus(data.error ?? "Kunde inte läsa iCloud."); return; }
+        setIcloudEvents(data.events ?? []);
+        setIcloudStatus("iCloud: " + (data.events?.length ?? 0) + " aktiviteter från " + (data.calendars ?? []).join(" och ") + ".");
+      } catch { if (active) setIcloudStatus("Kunde inte nå iCloud just nu."); }
+    }
+    void refreshIcloud();
+    const timer = window.setInterval(() => { if (document.visibilityState === "visible") void refreshIcloud(); }, 300000);
+    const onVisible = () => { if (document.visibilityState === "visible") void refreshIcloud(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { active = false; window.clearInterval(timer); document.removeEventListener("visibilitychange", onVisible); };
+  }, []);
+
+  const visibleEvents = useMemo(() => [...events, ...icloudEvents].filter(event => {
     if (event.category === "ski_candidate") return false;
     if (personFilter !== "all" && !(eventParticipants[event.id] ?? []).includes(personFilter)) return false;
     const query = search.trim().toLocaleLowerCase("sv-SE");
     if (!query) return true;
     return [event.title, event.location ?? "", dateKey(new Date(event.starts_at)), new Date(event.starts_at).toLocaleDateString("sv-SE")].some(value => value.toLocaleLowerCase("sv-SE").includes(query));
-  }), [events, eventParticipants, personFilter, search]);
+  }), [events, icloudEvents, eventParticipants, personFilter, search]);
   const eventColor = (event: CalendarEvent) => {
     const member = persons.find(p => (eventParticipants[event.id] ?? []).includes(p.id));
     return member ? familyColor(member.name) : "#e5e7eb";
@@ -280,7 +303,7 @@ export default function CalendarPage() {
     }
     setDeletingId(null);
   };
-  const viewingEvent = events.find(event => event.id === viewingId);
+  const viewingEvent = [...events, ...icloudEvents].find(event => event.id === viewingId);
   const showDetails = (event: CalendarEvent) => {
     setSelected(dateKey(new Date(event.starts_at)));
     setViewingId(event.id);
@@ -307,6 +330,11 @@ export default function CalendarPage() {
         <h1 style={{ fontSize: 34, marginBottom: 6 }}>Familjens kalender</h1>
         <p style={{ color: "#64748b", marginTop: 0 }}>Gemensam översikt över familjens aktiviteter.</p>
 
+        <section style={{ background: "white", borderRadius: 16, padding: 20, marginTop: 18 }}>
+          <h2 style={{ marginTop: 0, fontSize: 20 }}>Apple iCloud – Family</h2>
+          <p role="status">{icloudStatus}</p>
+          <p style={{ color: "#64748b" }}>Family och Family ⚠️ visas automatiskt och skrivskyddat. Uppdateras när kalendern öppnas och var femte minut.</p>
+        </section>
         <section style={{ background: "white", borderRadius: 16, padding: 20, marginTop: 18 }}>
           <h2 style={{ marginTop: 0, fontSize: 20 }}>Google Kalender – Familj</h2>
           <p style={{ color: "#64748b" }}>Visa aktiviteter från kalendern Familj innan någon import görs.</p>

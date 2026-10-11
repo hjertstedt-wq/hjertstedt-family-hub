@@ -23,7 +23,8 @@ export async function GET() {
     const parsed = new URL(url);
     if (parsed.protocol !== "https:" || !(parsed.hostname === "caldav.icloud.com" || parsed.hostname.endsWith(".caldav.icloud.com"))) throw new Error("Unexpected CalDAV host");
     const response = await fetch(url, { method: "PROPFIND", headers: { Authorization: authorization, Depth: depth, "Content-Type": "application/xml; charset=utf-8" }, body, cache: "no-store", signal: AbortSignal.timeout(12000), redirect: "manual" });
-    if (!response.ok) throw new Error("CalDAV request failed (" + response.status + ")");
+    if (response.status >= 300 && response.status < 400) { const target = response.headers.get("location"); if (!target) throw new Error("redirect_missing_location"); return propfind(new URL(target, url).href, body, depth); }
+    if (!response.ok) throw new Error("http_" + response.status);
     return response.text();
   }
   function resolved(base: string, href: string) {
@@ -44,7 +45,9 @@ export async function GET() {
     const listXml = await propfind(home, '<?xml version="1.0"?><d:propfind xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:prop><d:displayname/><d:resourcetype/></d:prop></d:propfind>', "1");
     const calendars = responses(listXml).filter(r => /<(?:[\w.-]+:)?calendar\s*\/?\s*>/i.test(xmlText(r, "resourcetype") ?? "")).map(r => ({ name: decodeXml(xmlText(r, "displayname") ?? ""), href: xmlText(r, "href") })).filter(c => c.href);
     return NextResponse.json({ status: "discovered", calendars: calendars.map(c => ({ name: c.name, isFamilj: c.name.trim().toLocaleLowerCase("sv-SE") === "familj" })) }, { headers: { "Cache-Control": "no-store" } });
-  } catch {
-    return NextResponse.json({ error: "Kunde inte läsa iCloud-kalendrar. Kontrollera Apple-ID, appspecifikt lösenord och CalDAV-åtkomst." }, { status: 502 });
+  } catch (caught) {
+    const message = caught instanceof Error ? caught.message : "unknown";
+    const code = /^http_\\d+$/.test(message) ? message : ["redirect_missing_location", "No principal", "No calendar home", "Unexpected CalDAV host", "Unexpected CalDAV redirect"].includes(message) ? message : "connection_failed";
+    return NextResponse.json({ error: "Kunde inte läsa iCloud-kalendrar.", diagnostic: code }, { status: 502 });
   }
 }

@@ -27,6 +27,7 @@ export default function CalendarPage() {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [icloudEvents, setIcloudEvents] = useState<CalendarEvent[]>([]);
   const [icloudStatus, setIcloudStatus] = useState("Hämtar iCloud-kalendrar...");
+  const [showIcloud, setShowIcloud] = useState(true);
   const [googleStatus, setGoogleStatus] = useState("");
   const [googlePreview, setGooglePreview] = useState<{title: string; starts_at?: string}[]>([]);
   const [googleBusy, setGoogleBusy] = useState(false);
@@ -113,16 +114,16 @@ export default function CalendarPage() {
     return () => { active = false; window.clearInterval(timer); document.removeEventListener("visibilitychange", onVisible); };
   }, []);
 
-  const visibleEvents = useMemo(() => [...events, ...icloudEvents].filter(event => {
+  const visibleEvents = useMemo(() => [...events, ...(showIcloud ? icloudEvents : [])].filter(event => {
     if (event.category === "ski_candidate") return false;
     if (personFilter !== "all" && !(eventParticipants[event.id] ?? []).includes(personFilter)) return false;
     const query = search.trim().toLocaleLowerCase("sv-SE");
     if (!query) return true;
     return [event.title, event.location ?? "", dateKey(new Date(event.starts_at)), new Date(event.starts_at).toLocaleDateString("sv-SE")].some(value => value.toLocaleLowerCase("sv-SE").includes(query));
-  }), [events, icloudEvents, eventParticipants, personFilter, search]);
+  }), [events, icloudEvents, showIcloud, eventParticipants, personFilter, search]);
   const eventColor = (event: CalendarEvent) => {
     const member = persons.find(p => (eventParticipants[event.id] ?? []).includes(p.id));
-    return member ? familyColor(member.name) : "#e5e7eb";
+    return member ? familyColor(member.name) : event.source === "icloud" ? "#dceafe" : "#e5e7eb";
   };
   const calendarDays = useMemo(() => {
     const firstWeekday = (month.getDay() + 6) % 7;
@@ -333,6 +334,7 @@ export default function CalendarPage() {
         <section style={{ background: "white", borderRadius: 16, padding: 20, marginTop: 18 }}>
           <h2 style={{ marginTop: 0, fontSize: 20 }}>Apple iCloud – Family</h2>
           <p role="status">{icloudStatus}</p>
+          <label style={{ display: "flex", alignItems: "center", gap: 8 }}><input type="checkbox" checked={showIcloud} onChange={e => setShowIcloud(e.target.checked)} /> Visa båda iCloud-kalendrarna</label>
           <p style={{ color: "#64748b" }}>Family och Family ⚠️ visas automatiskt och skrivskyddat. Uppdateras när kalendern öppnas och var femte minut.</p>
         </section>
         <section style={{ background: "white", borderRadius: 16, padding: 20, marginTop: 18 }}>
@@ -417,7 +419,7 @@ export default function CalendarPage() {
             <h2 style={{ textTransform: "capitalize", margin: 0, fontSize: 22, textAlign: "center" }}>{view === "month" ? monthLabel.format(month) : view === "day" ? new Date(selected + "T12:00:00").toLocaleDateString("sv-SE", { weekday: "long", day: "numeric", month: "long" }) : "Vecka " + Math.ceil((new Date(selected + "T12:00:00").getTime() - new Date(new Date(selected + "T12:00:00").getFullYear(), 0, 1).getTime()) / 604800000)}</h2>
             <button onClick={() => navigate(1)} aria-label="Nästa månad" style={navStyle}>›</button>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: view === "day" ? "minmax(0, 1fr)" : "repeat(7, minmax(0, 1fr))", gap: 5 }}>
+          <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}><div style={{ display: "grid", minWidth: view === "day" ? 0 : view === "week" ? 560 : 490, gridTemplateColumns: view === "day" ? "minmax(0, 1fr)" : "repeat(7, minmax(0, 1fr))", gap: 5 }}>
             {view !== "day" && weekdays.map(day => <div key={day} style={{ textAlign: "center", fontSize: 12, color: "#64748b", fontWeight: 700, padding: "8px 0" }}>{day}</div>)}
             {calendarDays.map(day => {
               const key = dateKey(day);
@@ -447,7 +449,7 @@ export default function CalendarPage() {
                 </div>
               );
             })}
-          </div>
+          </div></div>
         </section>
 
         {viewingEvent && <section style={{ background: "white", borderRadius: 20, padding: 24, marginTop: 18, border: "1px solid #c8d8f2" }}>

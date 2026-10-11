@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requirePilotIcloudUser } from "../pilot-auth";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -28,17 +29,8 @@ function parseIcs(xml: string, source: string) {
   return result;
 }
 export async function GET(req: NextRequest) {
-  // Never expose a shared iCloud account to anonymous visitors.
-  const bearer = req.headers.get("authorization")?.match(/^Bearer (.+)$/i)?.[1];
-  const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
-  if (!bearer || !base || !key) return NextResponse.json({error:"Unauthorized"},{status:401});
-  try {
-    const auth = await fetch(base.replace(/\/$/,"")+"/auth/v1/user",{headers:{Authorization:"Bearer "+bearer,apikey:key},cache:"no-store",signal:AbortSignal.timeout(8000)});
-    if (!auth.ok) return NextResponse.json({error:"Unauthorized"},{status:401});
-    const user = await auth.json();
-    if (!user?.id) return NextResponse.json({error:"Unauthorized"},{status:401});
-  } catch { return NextResponse.json({error:"Authentication unavailable"},{status:503}); }
+  const denied=await requirePilotIcloudUser(req);
+  if(denied)return denied;
   const appleId=process.env.ICLOUD_APPLE_ID,password=process.env.ICLOUD_APP_PASSWORD;
   if (!appleId||!password) return NextResponse.json({error:"iCloud not configured"},{status:503});
   const authHeader="Basic "+Buffer.from(appleId+":"+password).toString("base64");

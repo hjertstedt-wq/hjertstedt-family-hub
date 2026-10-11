@@ -118,6 +118,7 @@ export default function SkiPage() {
     <div style={{maxWidth:960,margin:"auto"}}>
       <a href="/" style={{color:"#315e9c"}}>← Till familjen</a>
       <h1>Alpint – tävlingar</h1>
+      <p><a href="/ski/training" style={{color:"#315e9c",fontWeight:700}}>Planera alpina träningar och flerdagarsläger för Elsa och Alva →</a></p>
       <p><a href="/ski/status" style={{color:"#315e9c",fontWeight:700}}>Kontrollera källor och synkroniseringsstatus →</a></p>
       <p><a href="/ski/sources" style={{color:"#315e9c",fontWeight:700}}>Visa relevanta tävlingar och läger från Skidförbundet →</a></p>
       <p><a href="/ski/import" style={{color:"#315e9c",fontWeight:700}}>Importera tävlingar från kalenderfil (.ics) →</a></p>

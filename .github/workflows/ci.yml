@@ -1,7 +1,7 @@
 name: Build and Type Check
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
 jobs:
   build:
@@ -15,6 +15,11 @@ jobs:
         run: npm install --no-audit --no-fund
       - name: Regression tests
         run: npm test
+      - name: TypeScript check
+        run: npm run typecheck
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: test-publishable-key
       - name: Build Next.js
         run: npm run build
         env:

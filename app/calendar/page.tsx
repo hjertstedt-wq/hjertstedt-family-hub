@@ -25,6 +25,9 @@ const dateKey = (date: Date) => [date.getFullYear(), String(date.getMonth() + 1)
 export default function CalendarPage() {
   const router = useRouter();
   const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [googleStatus, setGoogleStatus] = useState("");
+  const [googlePreview, setGooglePreview] = useState<{title: string; starts_at?: string}[]>([]);
+  const [googleBusy, setGoogleBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [persons, setPersons] = useState<Person[]>([]);
@@ -304,6 +307,26 @@ export default function CalendarPage() {
         <h1 style={{ fontSize: 34, marginBottom: 6 }}>Familjens kalender</h1>
         <p style={{ color: "#64748b", marginTop: 0 }}>Gemensam översikt över familjens aktiviteter.</p>
 
+        <section style={{ background: "white", borderRadius: 16, padding: 20, marginTop: 18 }}>
+          <h2 style={{ marginTop: 0, fontSize: 20 }}>Google Kalender – Familj</h2>
+          <p style={{ color: "#64748b" }}>Visa aktiviteter från kalendern Familj innan någon import görs.</p>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <a href="/api/google/connect" style={{ padding: "10px 14px", borderRadius: 8, background: "#315e9c", color: "white", textDecoration: "none" }}>Anslut Google</a>
+            <button type="button" disabled={googleBusy} onClick={async () => {
+              setGoogleBusy(true); setGoogleStatus(""); setGooglePreview([]);
+              try {
+                const response = await fetch("/api/google/family", { cache: "no-store" });
+                const result = await response.json();
+                if (!response.ok) setGoogleStatus(result.error ?? "Kunde inte läsa kalendern.");
+                else if (result.status !== "preview") setGoogleStatus(result.status === "not_found" ? "Hittade ingen kalender med namnet Familj." : "Flera kalendrar heter Familj.");
+                else { setGooglePreview(result.events ?? []); setGoogleStatus("Hittade " + (result.events?.length ?? 0) + " kommande aktiviteter i Familj. Inget har importerats."); }
+              } catch { setGoogleStatus("Det gick inte att läsa Google Kalender."); }
+              finally { setGoogleBusy(false); }
+            }} style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid #cbd5e1", background: "white", cursor: "pointer" }}>{googleBusy ? "Hämtar..." : "Förhandsgranska Familj"}</button>
+          </div>
+          {googleStatus && <p role="status">{googleStatus}</p>}
+          {googlePreview.length > 0 && <ul>{googlePreview.slice(0, 20).map((item, index) => <li key={index}>{item.starts_at ? new Date(item.starts_at).toLocaleString("sv-SE") + " – " : ""}{item.title}</li>)}</ul>}
+        </section>
         <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 22 }}>
           <button onClick={() => { chooseDate(selected); }} style={{ background: "#315e9c", color: "white", border: 0, borderRadius: 10, padding: "13px 18px", fontWeight: 700, cursor: "pointer" }}>+ Lägg till aktivitet</button>
         </div>

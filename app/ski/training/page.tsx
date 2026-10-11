@@ -44,7 +44,7 @@ export default function SkiTrainingPage(){
  async function save(e:React.FormEvent){
   e.preventDefault();setError("");setNotice("");
   if(!selected.length){setError("Välj Elsa, Alva eller båda.");return;}
-  if(days<1||days>14||start>=end){setError("Ange 1–14 dagar och en sluttid efter starttiden.");return;}
+  if(!name.trim()||!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isInteger(days)||days<1||days>14||start>=end){setError("Ange 1–14 dagar och en sluttid efter starttiden.");return;}
   setBusy(true);
   const created:string[]=[];
   try{
@@ -66,8 +66,11 @@ export default function SkiTrainingPage(){
    }
    setNotice(created.length+" träningspass sparade i familjekalendern.");await load();
   }catch(err){
-   if(created.length)await supabase.from("calendar_events").delete().in("id",created);
-   setError("Kunde inte skapa hela lägret. Försök igen. "+(err instanceof Error?err.message:"Okänt fel"));
+   if(created.length){
+    const {error:rollbackError}=await supabase.from("calendar_events").delete().in("id",created);
+    if(rollbackError){setError("Delvis sparat: "+created.length+" pass skapades men kunde inte återställas automatiskt. Kontrollera kalendern innan du försöker igen. "+rollbackError.message);return;}
+   }
+   setError("Kunde inte skapa hela lägret. Eventuella nyskapade pass har återställts. "+(err instanceof Error?err.message:"Okänt fel"));
   }finally{setBusy(false);}
  }
  return <main style={{minHeight:"100vh",background:"#f4f6fa",padding:"20px 14px",fontFamily:"Arial,sans-serif",color:"#17253b"}}>

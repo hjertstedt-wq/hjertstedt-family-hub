@@ -55,7 +55,7 @@ export async function GET() {
     const home = resolved(principal, homeHref);
     const listXml = await propfind(home, '<?xml version="1.0"?><d:propfind xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:prop><d:displayname/><d:resourcetype/></d:prop></d:propfind>', "1");
     const entries = responses(listXml);
-    const calendars = entries.filter(r => /<(?:[\w.-]+:)?calendar\s*\/?\s*>/i.test(xmlText(r, "resourcetype") ?? "")).map(r => ({ name: decodeXml(xmlText(r, "displayname") ?? ""), href: xmlText(r, "href") })).filter(c => c.href);
+    const calendars = entries.filter(r => /<(?:[\w.-]+:)?calendar\b[^>]*\/?>/i.test(xmlText(r, "resourcetype") ?? "")).map(r => ({ name: decodeXml(xmlText(r, "displayname") ?? ""), href: xmlText(r, "href") })).filter(c => c.href);
     return NextResponse.json({ status: "discovered", diagnostics: { responseCount: entries.length, calendarResourceCount: calendars.length, namedResources: entries.map(r => ({ name: decodeXml(xmlText(r, "displayname") ?? ""), calendarTag: Boolean(xmlText(r, "resourcetype")?.includes("calendar")), hasHref: Boolean(xmlText(r, "href")) })) }, calendars: calendars.map(c => ({ name: c.name, isFamilj: c.name.trim().toLocaleLowerCase("sv-SE") === "familj" })) }, { headers: { "Cache-Control": "no-store" } });
   } catch (caught) {
     const message = caught instanceof Error ? caught.message : "unknown";

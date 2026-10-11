@@ -59,14 +59,21 @@ export async function GET(req: NextRequest) {
     const start=new Date();start.setMonth(start.getMonth()-1);
     const end=new Date();end.setMonth(end.getMonth()+6);
     const stamp=(d:Date)=>d.toISOString().replace(/[-:]/g,"").replace(/\.\d{3}/,"");
-    const query='<c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:prop><c:calendar-data/></d:prop><c:filter><c:comp-filter name="VCALENDAR"><c:comp-filter name="VEVENT"><c:time-range start="'+stamp(start)+'" end="'+stamp(end)+'"/></c:comp-filter></c:comp-filter></c:filter></c:calendar-query>';
+    const query='<c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:prop><c:calendar-data><c:expand start="'+stamp(start)+'" end="'+stamp(end)+'"/></c:calendar-data></d:prop><c:filter><c:comp-filter name="VCALENDAR"><c:comp-filter name="VEVENT"><c:time-range start="'+stamp(start)+'" end="'+stamp(end)+'"/></c:comp-filter></c:comp-filter></c:filter></c:calendar-query>';
     const all=[] as ReturnType<typeof parseIcs>;
+    let expanded=true;
     for(const cal of calendars){
-      const xml=await request(resolve(home,cal.href),"REPORT",query,"1");
+      let xml:string;
+      try{xml=await request(resolve(home,cal.href),"REPORT",query,"1");}
+      catch(error){
+        if(!(error instanceof Error)||!/^caldav_(400|403|404|409|415|422|501)$/.test(error.message))throw error;
+        expanded=false;
+        xml=await request(resolve(home,cal.href),"REPORT",query.replace(/<c:calendar-data><c:expand[^>]*\/><\/c:calendar-data>/,"<c:calendar-data/>"),"1");
+      }
       for(const response of parts(xml,"response")) all.push(...parseIcs(response,cal.name));
     }
     const seen=new Set<string>();
-    const events=all.filter(e=>{const key=[e.title.trim().toLowerCase(),e.starts_at,e.ends_at,e.location||""].join("|");if(seen.has(key))return false;seen.add(key);return true;});
-    return NextResponse.json({status:"ok",calendars:calendars.map(c=>c.name),events},{headers:{"Cache-Control":"no-store"}});
+    const events=all.filter(e=>{const key=e.id;if(seen.has(key))return false;seen.add(key);return true;});
+    return NextResponse.json({status:"ok",recurrence_expanded:expanded,calendars:calendars.map(c=>c.name),events},{headers:{"Cache-Control":"no-store"}});
   } catch(e){return NextResponse.json({error:"Kunde inte läsa aktiviteter från iCloud.",diagnostic:e instanceof Error&&/^(caldav_\d+|untrusted_host|untrusted_href|redirect_limit|redirect_missing)$/.test(e.message)?e.message:"read_failed"},{status:502});}
 }

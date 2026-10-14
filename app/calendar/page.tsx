@@ -104,7 +104,7 @@ export default function CalendarPage() {
         if (!active) return;
         if (!response.ok) { setIcloudStatus(data.error ?? "Kunde inte läsa iCloud."); return; }
         setIcloudEvents(data.events ?? []);
-        setIcloudStatus("iCloud: " + (data.events?.length ?? 0) + " aktiviteter från " + (data.calendars ?? []).join(" och ") + ".");
+        setIcloudStatus("iCloud: " + (data.events?.length ?? 0) + " aktiviteter från " + (data.calendars ?? []).join(" och ") + "." + (data.recurrence_expanded === false ? " Obs: iCloud kunde inte expandera återkommande aktiviteter. Vissa träningstillfällen kan saknas." : ""));
       } catch { if (active) setIcloudStatus("Kunde inte nå iCloud just nu."); }
     }
     void refreshIcloud();

@@ -207,7 +207,7 @@ export default function CalendarPage() {
       return;
     }
     const query = editingId
-      ? supabase.from("calendar_events").update(payload).eq("id", editingId).eq("source", "manual")
+      ? supabase.from("calendar_events").update(payload).eq("id", editingId).in("source", ["manual", "staging_seed"])
       : supabase.from("calendar_events").insert({ ...payload, source: "manual" });
     const { data, error: insertError } = await query.select("id,title,starts_at,ends_at,location,category,source").single();
     if (insertError || !data) {
@@ -262,7 +262,7 @@ export default function CalendarPage() {
     setShowForm(true);
   };
   const editEvent = async (event: CalendarEvent) => {
-    if (event.source !== "manual") return;
+    if (!["manual", "staging_seed"].includes(event.source)) return;
     setEditingId(event.id);
     setRepeatWeeks(1);
     setFormError("");
@@ -287,12 +287,12 @@ export default function CalendarPage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
   const deleteEvent = async (event: CalendarEvent) => {
-    if (event.source !== "manual" || deletingId) return;
+    if (!["manual", "staging_seed"].includes(event.source) || deletingId) return;
     if (!window.confirm('Vill du verkligen radera "' + event.title + '"? Aktiviteten tas bort permanent.')) return;
     setDeletingId(event.id);
     setDeleteError("");
     const { data, error: removeError } = await supabase.from("calendar_events")
-      .delete().eq("id", event.id).eq("source", "manual").select("id");
+      .delete().eq("id", event.id).in("source", ["manual", "staging_seed"]).select("id");
     if (removeError) {
       setDeleteError("Kunde inte radera aktiviteten: " + removeError.message);
     } else if (!data || data.length === 0) {
@@ -476,7 +476,7 @@ export default function CalendarPage() {
               <div><strong>Källa:</strong> {viewingEvent.source}</div>
             </div>;
           })()}
-          {viewingEvent.source === "manual" && <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+          {["manual", "staging_seed"].includes(viewingEvent.source) && <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
             <button onClick={() => void editEvent(viewingEvent)} style={{ padding: "10px 16px", border: 0, borderRadius: 9, background: "#315e9c", color: "white", cursor: "pointer" }}>Redigera</button>
             <button onClick={() => void deleteEvent(viewingEvent)} disabled={deletingId !== null} style={{ padding: "10px 16px", border: "1px solid #f3c6c6", borderRadius: 9, background: "white", color: "#b42318", cursor: "pointer" }}>Radera</button>
           </div>}
@@ -491,7 +491,7 @@ export default function CalendarPage() {
               <div style={{ color: "#64748b", fontSize: 14, marginTop: 5 }}>{new Date(event.starts_at).toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" })}–{new Date(event.ends_at).toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" })}{event.location ? " · " + event.location : ""}</div>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 8 }}>
                 <small style={{ color: "#8492a6" }}>Källa: {event.source}</small>
-                {event.source === "manual" && (
+                {["manual", "staging_seed"].includes(event.source) && (
                   <div style={{ display: "flex", gap: 8 }}>
                   <button type="button" disabled={saving || deletingId !== null} onClick={() => void editEvent(event)}
                     style={{ color: "#315e9c", border: "1px solid #c5d5ee", background: "#fff", borderRadius: 8, padding: "7px 11px", cursor: "pointer" }}>

@@ -55,6 +55,7 @@ export default function CalendarPage() {
   const [selected, setSelected] = useState(() => dateKey(new Date()));
   const [view, setView] = useState<"month" | "week" | "day">("month");
   const [personFilter, setPersonFilter] = useState("all");
+  useEffect(() => { if (window.matchMedia("(max-width: 640px)").matches) setView("day"); }, []);
   const [search, setSearch] = useState("");
   const [repeatWeeks, setRepeatWeeks] = useState(1);
 
@@ -328,7 +329,8 @@ export default function CalendarPage() {
         <button onClick={() => router.push("/")} style={{ border: 0, background: "transparent", color: "#345e9b", cursor: "pointer", padding: 0 }}>
           ← Tillbaka till familjen
         </button>
-        <h1 style={{ fontSize: 34, marginBottom: 6 }}>Familjens kalender</h1>
+        <h1 style={{ fontSize: "clamp(26px, 6vw, 34px)", marginBottom: 6 }}>Familjens kalender</h1>
+        <p><a href="/ski">⛷ Visa alpina tävlingar</a></p>
         <p style={{ color: "#64748b", marginTop: 0 }}>Gemensam översikt över familjens aktiviteter.</p>
 
         <section style={{ background: "white", borderRadius: 16, padding: 20, marginTop: 18 }}>
@@ -370,6 +372,7 @@ export default function CalendarPage() {
           </select>
           <input aria-label="Sök aktiviteter" placeholder="Sök namn, plats eller datum" value={search} onChange={e => setSearch(e.target.value)} style={{ ...inputStyle, width: "min(100%, 260px)", marginTop: 0 }} />
         </section>
+        {personFilter !== "all" && showIcloud && <p style={{ fontSize: 13, color: "#805b17" }}>iCloud-aktiviteter saknar ännu deltagarkoppling och döljs när en familjemedlem väljs.</p>}
         <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 10 }}>
           {persons.map(person => <span key={person.id} style={{ fontSize: 12, borderRadius: 8, background: familyColor(person.name), padding: "5px 9px" }}>{person.name}</span>)}
         </div>

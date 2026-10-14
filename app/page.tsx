@@ -20,6 +20,9 @@ export default function Home() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [saving, setSaving] = useState(false);
+  const [accountEmail, setAccountEmail] = useState("");
+  const [dataSource, setDataSource] = useState("");
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
 
   useEffect(() => {
     async function loadFamily() {
@@ -30,6 +33,10 @@ export default function Home() {
         window.location.replace("/login");
         return;
       }
+
+      setAccountEmail(session.user.email ?? "Okänt konto");
+      try { setDataSource(new URL(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").hostname); }
+      catch { setDataSource("Okänd Supabase-miljö"); }
 
       const { data, error } = await supabase
         .from("persons")
@@ -151,6 +158,24 @@ export default function Home() {
           </div>
 
           {error && <p role="alert" style={{ color: "#c62828" }}>{error}</p>}
+          {!loading && persons.some(person => /\\btest\\b/i.test(person.name ?? "")) && (
+            <p role="status" style={{ background: "#fff7e6", color: "#704d13", padding: 12, borderRadius: 10 }}>
+              Den här miljön innehåller testprofiler. Kontrollera datakällan nedan innan du ändrar familjens riktiga uppgifter.
+            </p>
+          )}
+          <div style={{ marginBottom: 16 }}>
+            <button type="button" onClick={() => setDiagnosticsOpen(value => !value)}
+              aria-expanded={diagnosticsOpen}
+              style={{ border: "1px solid #cbd5e1", background: "white", borderRadius: 8, padding: "8px 12px", cursor: "pointer" }}>
+              {diagnosticsOpen ? "Dölj" : "Visa"} anslutningskontroll
+            </button>
+            {diagnosticsOpen && <div style={{ marginTop: 10, background: "#f4f6fa", borderRadius: 10, padding: 14, overflowWrap: "anywhere", fontSize: 13 }}>
+              <div><strong>Inloggat konto:</strong> {accountEmail || "Ej tillgängligt"}</div>
+              <div><strong>Supabase-projekt:</strong> {dataSource || "Ej tillgängligt"}</div>
+              <div><strong>Personer som kontot kan läsa:</strong> {persons.length}</div>
+              <div style={{ marginTop: 8, color: "#64748b" }}>Kontrollen visar anslutningen för den här appen och gör inga ändringar i databasen.</div>
+            </div>}
+          </div>
 
           {loading ? (
             <p>Laddar familjen...</p>

@@ -10,6 +10,12 @@ const panel: React.CSSProperties = { background: "white", padding: 24, borderRad
 const action: React.CSSProperties = { border: 0, padding: "12px 17px", borderRadius: 10, background: "#315e9c", color: "white", fontWeight: 700, cursor: "pointer" };
 const secondary: React.CSSProperties = { ...action, background: "#eaf1fb", color: "#234876" };
 const guidance: React.CSSProperties = { color: "#586a7f", lineHeight: 1.6 };
+const verifiedFeeds = [
+  { id: "hjulsbro", label: "Elsa – Hjulsbro F-2011/12", url: "https://cal.svenskalag.se/28145", sourcePage: "https://www.svenskalag.se/hjulsbroik-fotboll-f-2011-12/kalender" },
+  { id: "nsk-u16", label: "Elsa – NSK U16", url: "https://cal.svenskalag.se/59688", sourcePage: "https://www.norrkopingssk.se/norrkopingssk-u16/kalender" },
+  { id: "nsk-u14", label: "Alva – NSK U14", url: "https://cal.svenskalag.se/59687", sourcePage: "https://www.norrkopingssk.se/norrkopingssk-u14/kalender" },
+  { id: "nsk-training", label: "NSK – gemensam träning", url: "https://cal.svenskalag.se/109110", sourcePage: "https://www.norrkopingssk.se/norrkopingssk-nsktraning/kalender" },
+] as const;
 
 export default function ConnectionsPage() {
   const [authenticated, setAuthenticated] = useState(false);
@@ -103,7 +109,19 @@ export default function ConnectionsPage() {
     </section>
     <section id="sports" style={panel}>
       <h2 style={{ marginTop: 0 }}>Fotboll och föreningsaktiviteter</h2>
-      <p style={guidance}>Svenskalag och SportAdmin erbjuder prenumerationskalendrar. Kopiera länken från rätt lag eller barn och prova den här. Vi testar riktiga aktiviteter innan vi slår på import.</p>
+      <p style={guidance}>Jag har hittat flera offentliga prenumerationsadresser för familjens föreningar. Välj en av dem för att fylla i adressen automatiskt, eller klistra in en personlig kalenderlänk från SportAdmin.</p>
+      <h3 style={{ fontSize: 16 }}>Hittade kalenderkällor – snabbval</h3>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,280px),1fr))", gap: 10, marginBottom: 18 }}>
+        {verifiedFeeds.map(feed => <div key={feed.id} style={{ padding: 13, borderRadius: 12, background: "#f3f7fc", border: "1px solid #d8e3f1" }}>
+          <div style={{ fontWeight: 700, marginBottom: 9 }}>{feed.label}</div>
+          <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+            <button type="button" disabled={Boolean(busy)} style={{ ...secondary, padding: "9px 12px" }} onClick={() => {
+              setSource("svenskalag"); setLink(feed.url); setResults([]); setStats(""); setNotice("Länken har fyllts i. Klicka på Förhandsgranska aktiviteter nedan.");
+            }}>Välj kalender</button>
+            <a href={feed.sourcePage} target="_blank" rel="noopener noreferrer" style={{ color: "#315e9c", fontSize: 13 }}>Officiell källa</a>
+          </div>
+        </div>)}
+      </div>
       <form onSubmit={previewFeed} style={{ display: "grid", gap: 13 }}>
         <label htmlFor="provider" style={{ fontWeight: 700 }}>Kalenderkälla</label>
         <select id="provider" value={source} onChange={e => { setSource(e.target.value as Provider); setLink(""); setResults([]); setStats(""); setNotice(""); }} style={{ padding: 13, borderRadius: 10, border: "1px solid #becde0", maxWidth: 450 }}>
@@ -111,10 +129,10 @@ export default function ConnectionsPage() {
           <option value="sportadmin">SportAdmin – exempelvis Alvas lag</option>
         </select>
         <label htmlFor="calendar-link" style={{ fontWeight: 700 }}>Prenumerationslänk (webcal:// eller https://)</label>
-        <input id="calendar-link" type="url" inputMode="url" required value={link} onChange={e => setLink(e.target.value)} placeholder={source === "svenskalag" ? "webcal://cal.svenskalag.se/…" : "webcal://cal.sportadmin.se/…"} style={{ padding: 13, borderRadius: 10, border: "1px solid #becde0", width: "100%", boxSizing: "border-box" }} />
+        <input id="calendar-link" type="url" inputMode="url" required value={link} onChange={e => setLink(e.target.value)} placeholder={source === "svenskalag" ? "https://cal.svenskalag.se/…" : "https://publicweb.sportadmin.se/webcal?id=…"} style={{ padding: 13, borderRadius: 10, border: "1px solid #becde0", width: "100%", boxSizing: "border-box" }} />
         <p style={{ ...guidance, fontSize: 14, margin: 0 }}>{source === "svenskalag"
           ? "Öppna lagets kalender på Svenskalag, välj Prenumerera och kopiera webcal-länken."
-          : "Öppna SportAdmin-appen → Aktiviteter → kalenderikonen Prenumerera. Kopiera kalenderlänken om appen visar den."}</p>
+          : "Öppna SportAdmin → Mer → Kalenderprenumerationer och kopiera länken för Alvas profil. I vissa versioner finns prenumerationen under Aktiviteter → kalenderikonen. Länken kan börja med publicweb.sportadmin.se eller cal.sportadmin.se."}</p>
         <div><button type="submit" disabled={!authenticated || !link.trim() || Boolean(busy)} style={action}>{busy === "feed" ? "Läser kalendern…" : "Förhandsgranska aktiviteter"}</button></div>
       </form>
       {notice && <p role="status" style={{ marginTop: 16 }}>{notice}</p>}

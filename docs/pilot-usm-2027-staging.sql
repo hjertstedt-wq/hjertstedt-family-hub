@@ -76,11 +76,12 @@ END;
 $usm$;
 COMMIT;
 
--- Verify, in this same STAGING project:
+-- Verify in STAGING, including any existing manually entered USM event:
 SELECT e.id, e.title, e.starts_at, e.ends_at, e.category, p.name AS assigned_to
 FROM public.calendar_events e
 JOIN public.event_persons ep ON ep.event_id = e.id
 JOIN public.persons p ON p.id = ep.person_id
 WHERE e.family_id = 'bf763c14-7788-4003-a45b-cd05fb1f779b'
-  AND e.source = 'ssf_stomprogram'
-  AND e.external_id = 'usm-final-2027-funasdalen-bf763c14-7788-4003-a45b-cd05fb1f779b';
+  AND e.title ~* 'USM'
+  AND e.starts_at >= '2027-04-04 20:00:00+00'::timestamptz
+  AND e.starts_at < '2027-04-07 00:00:00+00'::timestamptz;

@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
   }, 401);
 
   const access = await getGoogleAccess(request, userId);
-  if (!access.ok) return send({ status: access.reason, error: access.error }, access.status);
+  if ("reason" in access) return send({ status: access.reason, error: access.error }, access.status);
 
   const updatedCookie = access.nextCookie;
   const respond = (body: Record<string, unknown>, status = 200) =>

@@ -29,6 +29,8 @@ export default function CalendarPage() {
   const [icloudStatus, setIcloudStatus] = useState("Hämtar iCloud-kalendrar...");
   const [showIcloud, setShowIcloud] = useState(true);
   const [googleStatus, setGoogleStatus] = useState("");
+  const [googleEvents, setGoogleEvents] = useState<CalendarEvent[]>([]);
+  const [showGoogle, setShowGoogle] = useState(true);
   const [googlePreview, setGooglePreview] = useState<{title: string; starts_at?: string}[]>([]);
   const [googleBusy, setGoogleBusy] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -115,16 +117,43 @@ export default function CalendarPage() {
     return () => { active = false; window.clearInterval(timer); document.removeEventListener("visibilitychange", onVisible); };
   }, []);
 
-  const visibleEvents = useMemo(() => [...events, ...(showIcloud ? icloudEvents : [])].filter(event => {
+  // Read connected Google events into a temporary, read-only calendar overlay.
+  // No Google events are persisted to Supabase at this stage.
+  useEffect(() => {
+    let active = true;
+    async function refreshGoogle() {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
+        const response = await fetch("/api/google/family", {
+          headers: { Authorization: "Bearer " + session.access_token }, cache: "no-store"
+        });
+        if (!response.ok) return;
+        const data = await response.json() as { status?: string; events?: {id:string;title:string;starts_at?:string;ends_at?:string;location?:string|null}[] };
+        if (active && data.status === "preview") {
+          setGoogleEvents((data.events ?? []).filter(e => Boolean(e.starts_at)).map(e => ({
+            id: "google:" + e.id, title: e.title,
+            starts_at: e.starts_at!, ends_at: e.ends_at ?? e.starts_at!,
+            location: e.location ?? null, source: "google", category: "google"
+          })));
+          setGoogleStatus("Google: " + (data.events?.length ?? 0) + " aktiviteter från Familj visas skrivskyddat.");
+        }
+      } catch { /* A disconnected Google source must not block the family calendar. */ }
+    }
+    void refreshGoogle();
+    return () => { active = false; };
+  }, []);
+
+  const visibleEvents = useMemo(() => [...events, ...(showIcloud ? icloudEvents : []), ...(showGoogle ? googleEvents : [])].filter(event => {
     if (event.category === "ski_candidate") return false;
     if (personFilter !== "all" && !(eventParticipants[event.id] ?? []).includes(personFilter)) return false;
     const query = search.trim().toLocaleLowerCase("sv-SE");
     if (!query) return true;
     return [event.title, event.location ?? "", dateKey(new Date(event.starts_at)), new Date(event.starts_at).toLocaleDateString("sv-SE")].some(value => value.toLocaleLowerCase("sv-SE").includes(query));
-  }), [events, icloudEvents, showIcloud, eventParticipants, personFilter, search]);
+  }), [events, icloudEvents, showIcloud, googleEvents, showGoogle, eventParticipants, personFilter, search]);
   const eventColor = (event: CalendarEvent) => {
     const member = persons.find(p => (eventParticipants[event.id] ?? []).includes(p.id));
-    return member ? familyColor(member.name) : event.source === "icloud" ? "#dceafe" : "#e5e7eb";
+    return member ? familyColor(member.name) : event.source === "icloud" ? "#dceafe" : event.source === "google" ? "#e8f7df" : "#e5e7eb";
   };
   const calendarDays = useMemo(() => {
     const firstWeekday = (month.getDay() + 6) % 7;
@@ -305,7 +334,7 @@ export default function CalendarPage() {
     }
     setDeletingId(null);
   };
-  const viewingEvent = [...events, ...icloudEvents].find(event => event.id === viewingId);
+  const viewingEvent = [...events, ...icloudEvents, ...googleEvents].find(event => event.id === viewingId);
   const showDetails = (event: CalendarEvent) => {
     setSelected(dateKey(new Date(event.starts_at)));
     setViewingId(event.id);
@@ -341,6 +370,7 @@ export default function CalendarPage() {
         </section>
         <section style={{ background: "white", borderRadius: 16, padding: 20, marginTop: 18 }}>
           <h2 style={{ marginTop: 0, fontSize: 20 }}>Google Kalender – Familj</h2>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}><input type="checkbox" checked={showGoogle} onChange={e => setShowGoogle(e.target.checked)} /> Visa Google-aktiviteter i familjekalendern</label>
           <p style={{ color: "#64748b" }}>Visa aktiviteter från kalendern Familj innan någon import görs.</p>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <button type="button" disabled={googleBusy} onClick={async () => {
@@ -368,7 +398,9 @@ export default function CalendarPage() {
                 const result = await response.json();
                 if (!response.ok) setGoogleStatus(result.error ?? "Kunde inte läsa kalendern.");
                 else if (result.status !== "preview") setGoogleStatus(result.status === "not_found" ? "Hittade ingen kalender med namnet Familj." : "Flera kalendrar heter Familj.");
-                else { setGooglePreview(result.events ?? []); setGoogleStatus("Hittade " + (result.events?.length ?? 0) + " kommande aktiviteter i Familj. Inget har importerats."); }
+                else { setGooglePreview(result.events ?? []);
+                  setGoogleEvents((result.events ?? []).filter((item: {starts_at?: string}) => Boolean(item.starts_at)).map((item: {id:string;title:string;starts_at:string;ends_at?:string;location?:string|null}) => ({id:"google:" + item.id,title:item.title,starts_at:item.starts_at,ends_at:item.ends_at ?? item.starts_at,location:item.location ?? null,source:"google",category:"google"})));
+                  setGoogleStatus("Hittade " + (result.events?.length ?? 0) + " kommande aktiviteter i Familj. De visas skrivskyddat i kalendern."); }
               } catch { setGoogleStatus("Det gick inte att läsa Google Kalender."); }
               finally { setGoogleBusy(false); }
             }} style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid #cbd5e1", background: "white", cursor: "pointer" }}>{googleBusy ? "Hämtar..." : "Förhandsgranska Familj"}</button>
@@ -389,7 +421,7 @@ export default function CalendarPage() {
           </select>
           <input aria-label="Sök aktiviteter" placeholder="Sök namn, plats eller datum" value={search} onChange={e => setSearch(e.target.value)} style={{ ...inputStyle, width: "min(100%, 260px)", marginTop: 0 }} />
         </section>
-        {personFilter !== "all" && showIcloud && <p style={{ fontSize: 13, color: "#805b17" }}>iCloud-aktiviteter saknar ännu deltagarkoppling och döljs när en familjemedlem väljs.</p>}
+        {personFilter !== "all" && showIcloud && <p style={{ fontSize: 13, color: "#805b17" }}>Externa kalenderaktiviteter saknar ännu deltagarkoppling och döljs när en familjemedlem väljs.</p>}
         <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 10 }}>
           {persons.map(person => <span key={person.id} style={{ fontSize: 12, borderRadius: 8, background: familyColor(person.name), padding: "5px 9px" }}>{person.name}</span>)}
         </div>

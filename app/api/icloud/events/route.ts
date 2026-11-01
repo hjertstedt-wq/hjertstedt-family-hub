@@ -7,7 +7,7 @@ const trusted = (host: string) => host === "caldav.icloud.com" || /^p\d+-caldav\
 const tag = (xml: string, name: string) => xml.match(new RegExp("<(?:[\\w.-]+:)?" + name + "(?:\\s[^>]*)?>([\\s\\S]*?)<\\/(?:[\\w.-]+:)?" + name + "\\s*>", "i"))?.[1] ?? "";
 const parts = (xml: string, name: string) => [...xml.matchAll(new RegExp("<(?:[\\w.-]+:)?" + name + "(?:\\s[^>]*)?>([\\s\\S]*?)<\\/(?:[\\w.-]+:)?" + name + "\\s*>", "gi"))].map(x => x[1]);
 const decode = (s: string) => s.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'");
-const calendarName = (s: string) => s === "Family" || s === "Family ⚠️";
+const calendarName = (s: string) => ["family", "kalender"].includes(s.trim().toLocaleLowerCase("sv-SE"));
 function parseDate(s: string): string | null {
   const v = s.trim();
   if (/^\d{8}$/.test(v)) return v.slice(0,4)+"-"+v.slice(4,6)+"-"+v.slice(6,8)+"T00:00:00";

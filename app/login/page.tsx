@@ -67,6 +67,7 @@ export default function LoginPage() {
             {busy ? "Vänta..." : "Logga in"}
           </button>
         </form>
+        <p style={{ marginTop: 18 }}><a href="/reset-password">Glömt lösenordet? Skapa eller återställ lösenord</a></p>
         <details style={{ marginTop: 24 }}>
           <summary>Alternativ: inloggningslänk via mejl</summary>
           <p>Mejllänken kan kräva samma webbläsare som när den begärdes.</p>

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "../supabase";
+import { readSelectedGoogleCalendar, saveSelectedGoogleCalendar } from "../lib/integrations/google-selection";
 import { publicSportsFeeds, readSelectedSportsFeeds, saveSelectedSportsFeeds, saveTemporarySportsFeed } from "../lib/integrations/pilot-sports";
 
 type Provider = "svenskalag" | "sportadmin";
@@ -21,6 +22,9 @@ export default function ConnectionsPage() {
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
   const [google, setGoogle] = useState("");
+  const [googleCalendars, setGoogleCalendars] = useState<{ id: string; name: string; primary: boolean }[]>([]);
+  const [googleCalendarId, setGoogleCalendarId] = useState("");
+  const [googleEventCount, setGoogleEventCount] = useState<number | null>(null);
   const [source, setSource] = useState<Provider>("svenskalag");
   const [link, setLink] = useState("");
   const [results, setResults] = useState<Activity[]>([]);
@@ -28,10 +32,15 @@ export default function ConnectionsPage() {
   useEffect(() => {
     void supabase.auth.getUser().then(({ data }) => {
       setAuthenticated(Boolean(data.user));
-      if (data.user) { setUserId(data.user.id); setEnabledFeeds(readSelectedSportsFeeds(data.user.id)); }
+      if (data.user) {
+        setUserId(data.user.id);
+        setEnabledFeeds(readSelectedSportsFeeds(data.user.id));
+        setGoogleCalendarId(readSelectedGoogleCalendar(data.user.id) ?? "");
+      }
     });
     const code = new URLSearchParams(window.location.search).get("google");
-    if (code === "connected_temporarily") setGoogle("Google godkänd för denna webbläsare. Läs in Familj för att testa.");
+    if (code === "connected") setGoogle("Google-anslutningen har godkänts. Välj din kalender nedan – appen försöker förnya behörigheten automatiskt.");
+    else if (code === "connected_temporarily") setGoogle("Google godkänd för tillfällig läsning, men Google gav ingen förnyelsebehörighet. Välj kalendern nedan.");
     else if (code) setGoogle("Google-anslutningen kunde inte slutföras (" + code + "). Kontrollera anslutningen.");
   }, []);
 
@@ -83,20 +92,51 @@ export default function ConnectionsPage() {
     }
   }
   async function checkGoogle() {
-    setBusy("google"); setGoogle("");
+    setBusy("google"); setGoogle(""); setGoogleEventCount(null);
     try {
       const bearer = await token();
-      const response = await fetch("/api/google/family", { headers: { Authorization: "Bearer " + bearer }, cache: "no-store" });
+      const response = await fetch("/api/google/family?list=1", {
+        headers: { Authorization: "Bearer " + bearer }, cache: "no-store"
+      });
       const data = await response.json();
-      if (!response.ok) throw Error(data.error ?? "Kunde inte läsa Google.");
-      if (data.status !== "preview") {
-        setGoogle(data.status === "not_found" ? "Ingen Google-kalender med namnet Familj hittades." : "Det finns flera kalendrar som heter Familj.");
+      if (!response.ok) throw Error(data.error ?? "Kunde inte läsa Google Kalender.");
+      const list = (data.calendars ?? []) as { id: string; name: string; primary: boolean }[];
+      setGoogleCalendars(list);
+      if (!list.length) {
+        setGoogle("Google-kontot har inga åtkomliga kalendrar.");
       } else {
-        setGoogle("Google-kalendern " + data.calendar.name + ": " + (data.events?.length ?? 0) + " kommande aktiviteter. Läsningen är tillfällig; permanent synkronisering är inte klar.");
+        const saved = list.find(item => item.id === googleCalendarId);
+        const defaultCalendar = list.find(item => ["familj", "family"].includes(item.name.toLocaleLowerCase("sv-SE").trim()));
+        setGoogleCalendarId((saved ?? defaultCalendar ?? list.find(item => item.primary) ?? list[0]).id);
+        setGoogle("Hittade " + list.length + " Google-kalendrar. Välj rätt kalender och klicka på Visa i Family Hub.");
       }
-    } catch (error) { setGoogle(error instanceof Error ? error.message : "Google-kontrollen misslyckades."); }
-    finally { setBusy(""); }
+    } catch (error) {
+      setGoogle(error instanceof Error ? error.message : "Google-kontrollen misslyckades.");
+    } finally { setBusy(""); }
   }
+
+  async function activateGoogleCalendar() {
+    if (!googleCalendarId || !userId) return;
+    setBusy("google"); setGoogle(""); setGoogleEventCount(null);
+    try {
+      const bearer = await token();
+      const response = await fetch(
+        "/api/google/family?calendarId=" + encodeURIComponent(googleCalendarId),
+        { headers: { Authorization: "Bearer " + bearer }, cache: "no-store" }
+      );
+      const data = await response.json();
+      if (!response.ok || data.status !== "preview") {
+        if (data.calendars) setGoogleCalendars(data.calendars);
+        throw Error(data.error ?? "Den valda kalendern kunde inte läsas.");
+      }
+      saveSelectedGoogleCalendar(userId, googleCalendarId);
+      setGoogleEventCount(data.events?.length ?? 0);
+      setGoogle("Google-kalendern '" + data.calendar.name + "' har valts. Du kan nu öppna familjekalendern.");
+    } catch (error) {
+      setGoogle(error instanceof Error ? error.message : "Kunde inte visa Google-kalendern.");
+    } finally { setBusy(""); }
+  }
+
   async function previewFeed(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy("feed"); setNotice(""); setResults([]); setStats(""); setPreviewReady(false);
     try {
@@ -124,15 +164,26 @@ export default function ConnectionsPage() {
     <h1 style={{ fontSize: "clamp(28px,5vw,43px)", marginBottom: 12 }}>Koppla familjens kalendrar</h1>
     <p style={{ ...guidance, maxWidth: 730, marginBottom: 30 }}>En plats för familjens aktiviteter. Vi testar läsning från varje källa separat innan vi aktiverar automatisk import och synkronisering. Inga kontolösenord från andra tjänster ska anges här.</p>
     {!authenticated && <p role="alert" style={{ color: "#ad2d2d" }}>Logga in för att prova anslutningarna. <a href="/login">Gå till inloggningen</a>.</p>}
-    <section style={panel}>
+    <section id="google" style={panel}>
       <h2 style={{ marginTop: 0 }}>Google Kalender</h2>
-      <p style={guidance}>Godkänn läsbehörighet hos Google. Appen kan prova kalendern <strong>Familj</strong>. Vi sparar inte ditt Google-lösenord eller ändrar händelser.</p>
+      <p style={guidance}>Anslut ditt Google-konto och välj kalendern som din familj använder. Du kan välja <strong>Familj</strong> eller någon annan tillgänglig kalender. Appen behöver endast läsbehörighet.</p>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
         <button type="button" style={action} disabled={!authenticated || Boolean(busy)} onClick={() => void connectGoogle()}>Anslut Google</button>
-        <button type="button" style={secondary} disabled={!authenticated || Boolean(busy)} onClick={() => void checkGoogle()}>{busy === "google" ? "Kontrollerar…" : "Läs kalendern Familj"}</button>
+        <button type="button" style={secondary} disabled={!authenticated || Boolean(busy)} onClick={() => void checkGoogle()}>{busy === "google" ? "Kontrollerar…" : "Hitta mina Google-kalendrar"}</button>
       </div>
+      {googleCalendars.length > 0 && <div style={{ marginTop: 16, display: "grid", gap: 10, maxWidth: 540 }}>
+        <label htmlFor="google-calendar-choice" style={{ fontWeight: 700 }}>Välj Google-kalender</label>
+        <select id="google-calendar-choice" value={googleCalendarId} onChange={e => setGoogleCalendarId(e.target.value)}
+          style={{ padding: 12, borderRadius: 10, border: "1px solid #becde0" }}>
+          {googleCalendars.map(calendar => <option key={calendar.id} value={calendar.id}>{calendar.name}{calendar.primary ? " (huvudkalender)" : ""}</option>)}
+        </select>
+        <div><button type="button" style={action} disabled={Boolean(busy) || !googleCalendarId} onClick={() => void activateGoogleCalendar()}>
+          Visa vald Google-kalender i Family Hub
+        </button></div>
+      </div>}
       {google && <p role="status">{google}</p>}
-      <p style={{ ...guidance, fontSize: 13 }}>Google-anslutningen gäller tills den tillfälliga behörigheten går ut. Långvarig säker synkronisering och frånkoppling byggs i nästa steg.</p>
+      {googleEventCount !== null && <p style={{ color: "#216344", fontWeight: 700 }}>Google: {googleEventCount} aktiviteter hittades i den valda kalendern. <a href="/calendar">Öppna familjekalendern →</a></p>}
+      <p style={{ ...guidance, fontSize: 13 }}>Pilot: kopplingen är personlig för den här webbläsaren. Google-behörigheten förnyas automatiskt om Google medger det. I den kommersiella versionen ska anslutningar lagras krypterat per familj på servern.</p>
     </section>
     <section style={panel}>
       <h2 style={{ marginTop: 0 }}>Apple Kalender / iCloud – valfritt för andra familjer</h2>

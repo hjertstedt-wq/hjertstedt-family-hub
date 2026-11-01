@@ -25,9 +25,6 @@ const dateKey = (date: Date) => [date.getFullYear(), String(date.getMonth() + 1)
 export default function CalendarPage() {
   const router = useRouter();
   const [events, setEvents] = useState<CalendarEvent[]>([]);
-  const [icloudEvents, setIcloudEvents] = useState<CalendarEvent[]>([]);
-  const [icloudStatus, setIcloudStatus] = useState("Hämtar iCloud-kalendrar...");
-  const [showIcloud, setShowIcloud] = useState(true);
   const [googleStatus, setGoogleStatus] = useState("");
   const [googleEvents, setGoogleEvents] = useState<CalendarEvent[]>([]);
   const [showGoogle, setShowGoogle] = useState(true);
@@ -96,27 +93,6 @@ export default function CalendarPage() {
     void loadEvents();
   }, [router]);
 
-  useEffect(() => {
-    let active = true;
-    async function refreshIcloud() {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session?.access_token) return;
-        const response = await fetch("/api/icloud/events", { headers: { Authorization: "Bearer " + session.access_token }, cache: "no-store" });
-        const data = await response.json();
-        if (!active) return;
-        if (!response.ok) { setIcloudStatus(data.error ?? "Kunde inte läsa iCloud."); return; }
-        setIcloudEvents(data.events ?? []);
-        setIcloudStatus("iCloud: " + (data.events?.length ?? 0) + " aktiviteter från " + (data.calendars ?? []).join(" och ") + "." + (data.recurrence_expanded === false ? " Obs: iCloud kunde inte expandera återkommande aktiviteter. Vissa träningstillfällen kan saknas." : ""));
-      } catch { if (active) setIcloudStatus("Kunde inte nå iCloud just nu."); }
-    }
-    void refreshIcloud();
-    const timer = window.setInterval(() => { if (document.visibilityState === "visible") void refreshIcloud(); }, 300000);
-    const onVisible = () => { if (document.visibilityState === "visible") void refreshIcloud(); };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => { active = false; window.clearInterval(timer); document.removeEventListener("visibilitychange", onVisible); };
-  }, []);
-
   // Read connected Google events into a temporary, read-only calendar overlay.
   // No Google events are persisted to Supabase at this stage.
   useEffect(() => {
@@ -144,16 +120,16 @@ export default function CalendarPage() {
     return () => { active = false; };
   }, []);
 
-  const visibleEvents = useMemo(() => [...events, ...(showIcloud ? icloudEvents : []), ...(showGoogle ? googleEvents : [])].filter(event => {
+  const visibleEvents = useMemo(() => [...events, ...(showGoogle ? googleEvents : [])].filter(event => {
     if (event.category === "ski_candidate") return false;
     if (personFilter !== "all" && !(eventParticipants[event.id] ?? []).includes(personFilter)) return false;
     const query = search.trim().toLocaleLowerCase("sv-SE");
     if (!query) return true;
     return [event.title, event.location ?? "", dateKey(new Date(event.starts_at)), new Date(event.starts_at).toLocaleDateString("sv-SE")].some(value => value.toLocaleLowerCase("sv-SE").includes(query));
-  }), [events, icloudEvents, showIcloud, googleEvents, showGoogle, eventParticipants, personFilter, search]);
+  }), [events, googleEvents, showGoogle, eventParticipants, personFilter, search]);
   const eventColor = (event: CalendarEvent) => {
     const member = persons.find(p => (eventParticipants[event.id] ?? []).includes(p.id));
-    return member ? familyColor(member.name) : event.source === "icloud" ? "#dceafe" : event.source === "google" ? "#e8f7df" : "#e5e7eb";
+    return member ? familyColor(member.name) : event.source === "google" ? "#e8f7df" : "#e5e7eb";
   };
   const calendarDays = useMemo(() => {
     const firstWeekday = (month.getDay() + 6) % 7;
@@ -334,7 +310,7 @@ export default function CalendarPage() {
     }
     setDeletingId(null);
   };
-  const viewingEvent = [...events, ...icloudEvents, ...googleEvents].find(event => event.id === viewingId);
+  const viewingEvent = [...events, ...googleEvents].find(event => event.id === viewingId);
   const showDetails = (event: CalendarEvent) => {
     setSelected(dateKey(new Date(event.starts_at)));
     setViewingId(event.id);
@@ -359,15 +335,9 @@ export default function CalendarPage() {
           ← Tillbaka till familjen
         </button>
         <h1 style={{ fontSize: "clamp(26px, 6vw, 34px)", marginBottom: 6 }}>Familjens kalender</h1>
-        <p><a href="/ski">⛷ Visa alpina tävlingar</a></p>
+        <p><a href="/ski">⛷ Visa alpina tävlingar</a> · <a href="/connections">Anslut kalendrar</a></p>
         <p style={{ color: "#64748b", marginTop: 0 }}>Gemensam översikt över familjens aktiviteter.</p>
 
-        <section style={{ background: "white", borderRadius: 16, padding: 20, marginTop: 18 }}>
-          <h2 style={{ marginTop: 0, fontSize: 20 }}>Apple iCloud – Kalender och Family</h2>
-          <p role="status">{icloudStatus}</p>
-          <label style={{ display: "flex", alignItems: "center", gap: 8 }}><input type="checkbox" checked={showIcloud} onChange={e => setShowIcloud(e.target.checked)} /> Visa båda iCloud-kalendrarna</label>
-          <p style={{ color: "#64748b" }}>Kalender och Family visas skrivskyddat från pilotkontot. Uppdateras när kalendern öppnas och var femte minut.</p>
-        </section>
         <section style={{ background: "white", borderRadius: 16, padding: 20, marginTop: 18 }}>
           <h2 style={{ marginTop: 0, fontSize: 20 }}>Google Kalender – Familj</h2>
           <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}><input type="checkbox" checked={showGoogle} onChange={e => setShowGoogle(e.target.checked)} /> Visa Google-aktiviteter i familjekalendern</label>
@@ -421,7 +391,7 @@ export default function CalendarPage() {
           </select>
           <input aria-label="Sök aktiviteter" placeholder="Sök namn, plats eller datum" value={search} onChange={e => setSearch(e.target.value)} style={{ ...inputStyle, width: "min(100%, 260px)", marginTop: 0 }} />
         </section>
-        {personFilter !== "all" && showIcloud && <p style={{ fontSize: 13, color: "#805b17" }}>Externa kalenderaktiviteter saknar ännu deltagarkoppling och döljs när en familjemedlem väljs.</p>}
+        {personFilter !== "all" && showGoogle && <p style={{ fontSize: 13, color: "#805b17" }}>Externa kalenderaktiviteter saknar ännu deltagarkoppling och döljs när en familjemedlem väljs.</p>}
         <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 10 }}>
           {persons.map(person => <span key={person.id} style={{ fontSize: 12, borderRadius: 8, background: familyColor(person.name), padding: "5px 9px" }}>{person.name}</span>)}
         </div>

@@ -6,9 +6,9 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type Source = "svenskalag" | "sportadmin";
-const hosts: Record<Source, string> = {
-  svenskalag: "cal.svenskalag.se",
-  sportadmin: "cal.sportadmin.se",
+const hosts: Record<Source, readonly string[]> = {
+  svenskalag: ["cal.svenskalag.se"],
+  sportadmin: ["cal.sportadmin.se", "publicweb.sportadmin.se"],
 };
 
 // A deliberately small allowlist protects the server against internal network requests.
@@ -16,7 +16,7 @@ const hosts: Record<Source, string> = {
 function subscriptionUrl(raw: string, source: Source): URL {
   const cleaned = raw.trim().replace(/^webcal:\/\//i, "https://");
   const url = new URL(cleaned);
-  if (url.protocol !== "https:" || url.hostname.toLowerCase() !== hosts[source] ||
+  if (url.protocol !== "https:" || !hosts[source].includes(url.hostname.toLowerCase()) ||
       url.username || url.password || url.port || url.hash || url.href.length > 1800) {
     throw new Error("invalid_url");
   }

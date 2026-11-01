@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../supabase";
 import { useSportsCalendar } from "../lib/integrations/use-sports-calendar";
+import { readSelectedGoogleCalendar } from "../lib/integrations/google-selection";
 import type { SportsMember } from "../lib/integrations/pilot-sports";
 
 type Person = { id: string; name: string };
@@ -29,7 +30,7 @@ const dateKey = (date: Date) => [date.getFullYear(), String(date.getMonth() + 1)
 export default function CalendarPage() {
   const router = useRouter();
   const [events, setEvents] = useState<CalendarEvent[]>([]);
-  const [googleStatus, setGoogleStatus] = useState("");
+  const [googleStatus, setGoogleStatus] = useState("Kontrollerar Google Kalender…");
   const [googleEvents, setGoogleEvents] = useState<CalendarEvent[]>([]);
   const [showGoogle, setShowGoogle] = useState(true);
   const { sportsEvents, sportsStatus } = useSportsCalendar();
@@ -99,31 +100,63 @@ export default function CalendarPage() {
     void loadEvents();
   }, [router]);
 
-  // Read connected Google events into a temporary, read-only calendar overlay.
-  // No Google events are persisted to Supabase at this stage.
+  // Google stays read-only and the selected calendar is tied to the current user.
+  // Surface connection failures instead of silently hiding Google activities.
+  async function refreshGoogle() {
+    setGoogleBusy(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!session || !user) {
+        setGoogleStatus("Logga in i Family Hub för att använda Google Kalender.");
+        setGoogleEvents([]);
+        return;
+      }
+      const selectedId = readSelectedGoogleCalendar(user.id);
+      const url = "/api/google/family" + (selectedId ? "?calendarId=" + encodeURIComponent(selectedId) : "");
+      const response = await fetch(url, {
+        headers: { Authorization: "Bearer " + session.access_token }, cache: "no-store"
+      });
+      const data = await response.json() as {
+        status?: string;
+        error?: string;
+        calendar?: { id: string; name: string };
+        events?: { id: string; title: string; starts_at?: string; ends_at?: string; location?: string | null }[];
+        refreshable?: boolean;
+        truncated?: boolean;
+      };
+      if (!response.ok || data.status !== "preview") {
+        setGoogleEvents([]);
+        setGooglePreview([]);
+        setGoogleStatus(data.error ?? "Ingen Google-kalender vald. Gå till Anslut kalendrar och välj din Google-kalender.");
+        return;
+      }
+      const readable = (data.events ?? []).filter(event => Boolean(event.starts_at));
+      setGoogleEvents(readable.map(event => ({
+        id: "google:" + data.calendar?.id + ":" + event.id,
+        title: event.title,
+        starts_at: event.starts_at!,
+        ends_at: event.ends_at ?? event.starts_at!,
+        location: event.location ?? null,
+        source: "google",
+        category: "google"
+      })));
+      setGooglePreview(readable);
+      setGoogleStatus("Google: " + readable.length + " aktiviteter från '" + (data.calendar?.name ?? "vald kalender") +
+        "' visas skrivskyddat." +
+        (data.truncated ? " Fler aktiviteter finns än vad som kan läsas i ett svep." : "") +
+        (!data.refreshable ? " Kopplingen är tillfällig och kan behöva förnyas." : ""));
+    } catch {
+      setGoogleEvents([]);
+      setGooglePreview([]);
+      setGoogleStatus("Kunde inte läsa Google Kalender. Kontrollera anslutningen under Anslut kalendrar.");
+    } finally { setGoogleBusy(false); }
+  }
+
   useEffect(() => {
-    let active = true;
-    async function refreshGoogle() {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) return;
-        const response = await fetch("/api/google/family", {
-          headers: { Authorization: "Bearer " + session.access_token }, cache: "no-store"
-        });
-        if (!response.ok) return;
-        const data = await response.json() as { status?: string; events?: {id:string;title:string;starts_at?:string;ends_at?:string;location?:string|null}[] };
-        if (active && data.status === "preview") {
-          setGoogleEvents((data.events ?? []).filter(e => Boolean(e.starts_at)).map(e => ({
-            id: "google:" + e.id, title: e.title,
-            starts_at: e.starts_at!, ends_at: e.ends_at ?? e.starts_at!,
-            location: e.location ?? null, source: "google", category: "google"
-          })));
-          setGoogleStatus("Google: " + (data.events?.length ?? 0) + " aktiviteter från Familj visas skrivskyddat.");
-        }
-      } catch { /* A disconnected Google source must not block the family calendar. */ }
-    }
     void refreshGoogle();
-    return () => { active = false; };
+    // Refresh once on mount; manual reload is available via the button below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const visibleEvents = useMemo(() => [...events, ...(showGoogle ? googleEvents : []), ...(showSports ? sportsEvents : [])].filter(event => {
@@ -362,9 +395,10 @@ export default function CalendarPage() {
         </section>
 
         <section style={{ background: "white", borderRadius: 16, padding: 20, marginTop: 18 }}>
-          <h2 style={{ marginTop: 0, fontSize: 20 }}>Google Kalender – Familj</h2>
+          <h2 style={{ marginTop: 0, fontSize: 20 }}>Google Kalender</h2>
           <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}><input type="checkbox" checked={showGoogle} onChange={e => setShowGoogle(e.target.checked)} /> Visa Google-aktiviteter i familjekalendern</label>
-          <p style={{ color: "#64748b" }}>Visa aktiviteter från kalendern Familj innan någon import görs.</p>
+          <p style={{ color: "#64748b" }}>Välj rätt Google-kalender i anslutningarna. Aktiviteter visas skrivskyddat här, utan att kopieras till databasen.</p>
+          <p><a href="/connections#google">Välj Google-kalender eller kontrollera anslutningen →</a></p>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <button type="button" disabled={googleBusy} onClick={async () => {
               setGoogleBusy(true); setGoogleStatus("");
@@ -382,21 +416,10 @@ export default function CalendarPage() {
                 setGoogleBusy(false);
               }
             }} style={{ padding: "10px 14px", borderRadius: 8, background: "#315e9c", color: "white", cursor: "pointer" }}>Anslut Google</button>
-            <button type="button" disabled={googleBusy} onClick={async () => {
-              setGoogleBusy(true); setGoogleStatus(""); setGooglePreview([]);
-              try {
-                const { data: { session } } = await supabase.auth.getSession();
-                if (!session) throw Error("Logga in först.");
-                const response = await fetch("/api/google/family", { headers: { Authorization: "Bearer " + session.access_token }, cache: "no-store" });
-                const result = await response.json();
-                if (!response.ok) setGoogleStatus(result.error ?? "Kunde inte läsa kalendern.");
-                else if (result.status !== "preview") setGoogleStatus(result.status === "not_found" ? "Hittade ingen kalender med namnet Familj." : "Flera kalendrar heter Familj.");
-                else { setGooglePreview(result.events ?? []);
-                  setGoogleEvents((result.events ?? []).filter((item: {starts_at?: string}) => Boolean(item.starts_at)).map((item: {id:string;title:string;starts_at:string;ends_at?:string;location?:string|null}) => ({id:"google:" + item.id,title:item.title,starts_at:item.starts_at,ends_at:item.ends_at ?? item.starts_at,location:item.location ?? null,source:"google",category:"google"})));
-                  setGoogleStatus("Hittade " + (result.events?.length ?? 0) + " kommande aktiviteter i Familj. De visas skrivskyddat i kalendern."); }
-              } catch { setGoogleStatus("Det gick inte att läsa Google Kalender."); }
-              finally { setGoogleBusy(false); }
-            }} style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid #cbd5e1", background: "white", cursor: "pointer" }}>{googleBusy ? "Hämtar..." : "Förhandsgranska Familj"}</button>
+            <button type="button" disabled={googleBusy} onClick={() => void refreshGoogle()}
+              style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid #cbd5e1", background: "white", cursor: "pointer" }}>
+              {googleBusy ? "Hämtar Google…" : "Uppdatera Google Kalender"}
+            </button>
           </div>
           {googleStatus && <p role="status">{googleStatus}</p>}
           {googlePreview.length > 0 && <ul>{googlePreview.slice(0, 20).map((item, index) => <li key={index}>{item.starts_at ? new Date(item.starts_at).toLocaleString("sv-SE") + " – " : ""}{item.title}</li>)}</ul>}
@@ -414,7 +437,7 @@ export default function CalendarPage() {
           </select>
           <input aria-label="Sök aktiviteter" placeholder="Sök namn, plats eller datum" value={search} onChange={e => setSearch(e.target.value)} style={{ ...inputStyle, width: "min(100%, 260px)", marginTop: 0 }} />
         </section>
-        {personFilter !== "all" && showGoogle && <p style={{ fontSize: 13, color: "#805b17" }}>Externa kalenderaktiviteter saknar ännu deltagarkoppling och döljs när en familjemedlem väljs.</p>}
+        {personFilter !== "all" && showGoogle && <p style={{ fontSize: 13, color: "#805b17" }}>Google-aktiviteter visas bara när filtret är Hela familjen, eftersom de ännu inte är kopplade till en person.</p>}
         <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 10 }}>
           {persons.map(person => <span key={person.id} style={{ fontSize: 12, borderRadius: 8, background: familyColor(person.name), padding: "5px 9px" }}>{person.name}</span>)}
         </div>

@@ -15,7 +15,6 @@ export default function ConnectionsPage() {
   const [authenticated, setAuthenticated] = useState(false);
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
-  const [apple, setApple] = useState("");
   const [google, setGoogle] = useState("");
   const [source, setSource] = useState<Provider>("svenskalag");
   const [link, setLink] = useState("");
@@ -32,19 +31,6 @@ export default function ConnectionsPage() {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) throw Error("Logga in i Family Hub först.");
     return session.access_token;
-  }
-  async function checkApple() {
-    setBusy("apple"); setApple("");
-    try {
-      const bearer = await token();
-      const response = await fetch("/api/icloud/discover", { headers: { Authorization: "Bearer " + bearer }, cache: "no-store" });
-      const data = await response.json();
-      if (!response.ok) throw Error(data.error ?? "iCloud-kalendrar kunde inte läsas.");
-      setApple("Hittade " + (data.calendars?.length ?? 0) + " kalendrar: " +
-        (data.calendars ?? []).map((c: { name: string }) => c.name).filter(Boolean).join(", ") +
-        ". Kalender och Family visas i kalenderöversikten när de går att läsa.");
-    } catch (error) { setApple(error instanceof Error ? error.message : "iCloud-kontrollen misslyckades."); }
-    finally { setBusy(""); }
   }
   async function connectGoogle() {
     setBusy("google"); setGoogle("");
@@ -101,16 +87,6 @@ export default function ConnectionsPage() {
     <p style={{ ...guidance, maxWidth: 730, marginBottom: 30 }}>En plats för familjens aktiviteter. Vi testar läsning från varje källa separat innan vi aktiverar automatisk import och synkronisering. Inga kontolösenord från andra tjänster ska anges här.</p>
     {!authenticated && <p role="alert" style={{ color: "#ad2d2d" }}>Logga in för att prova anslutningarna. <a href="/login">Gå till inloggningen</a>.</p>}
     <section style={panel}>
-      <h2 style={{ marginTop: 0 }}> Apple Kalender / iCloud</h2>
-      <p style={guidance}>Pilotkopplingen använder de befintliga iCloud-inställningarna. Vi läser kalendrarna Kalender och Family, utan att ändra något hos Apple.</p>
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-        <button type="button" style={action} disabled={!authenticated || Boolean(busy)} onClick={() => void checkApple()}>{busy === "apple" ? "Kontrollerar…" : "Kontrollera mina iCloud-kalendrar"}</button>
-        <a href="/calendar" style={{ ...secondary, textDecoration: "none" }}>Visa aktiviteter</a>
-      </div>
-      {apple && <p role="status">{apple}</p>}
-      <p style={{ ...guidance, fontSize: 13 }}>Observera: denna pilotkoppling är knuten till familjens befintliga Apple-konto. Separata privata Apple-kopplingar för framtida kunder återstår.</p>
-    </section>
-    <section style={panel}>
       <h2 style={{ marginTop: 0 }}>Google Kalender</h2>
       <p style={guidance}>Godkänn läsbehörighet hos Google. Appen kan prova kalendern <strong>Familj</strong>. Vi sparar inte ditt Google-lösenord eller ändrar händelser.</p>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -119,6 +95,11 @@ export default function ConnectionsPage() {
       </div>
       {google && <p role="status">{google}</p>}
       <p style={{ ...guidance, fontSize: 13 }}>Google-anslutningen gäller tills den tillfälliga behörigheten går ut. Långvarig säker synkronisering och frånkoppling byggs i nästa steg.</p>
+    </section>
+    <section style={panel}>
+      <h2 style={{ marginTop: 0 }}>Apple Kalender / iCloud – valfritt för andra familjer</h2>
+      <p style={guidance}>Er familj använder inte iCloud som kalenderkälla. Därför hämtar Family Hub inga Apple-aktiviteter automatiskt. En framtida familj som använder iCloud ska kunna lägga till <strong>sitt eget</strong> konto frivilligt.</p>
+      <p style={{ ...guidance, fontSize: 14, marginBottom: 0 }}>Status: separat och privat iCloud-anslutning är under utveckling. Ingen Apple-koppling är aktiverad för den här familjen.</p>
     </section>
     <section id="sports" style={panel}>
       <h2 style={{ marginTop: 0 }}>Fotboll och föreningsaktiviteter</h2>

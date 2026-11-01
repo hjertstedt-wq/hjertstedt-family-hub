@@ -171,7 +171,7 @@ export default function ConnectionsPage() {
           : "Öppna SportAdmin → Mer → Kalenderprenumerationer och kopiera länken för Alvas profil. I vissa versioner finns prenumerationen under Aktiviteter → kalenderikonen. Länken kan börja med publicweb.sportadmin.se eller cal.sportadmin.se."}</p>
         <div><button type="submit" disabled={!authenticated || !link.trim() || Boolean(busy)} style={action}>{busy === "feed" ? "Läser kalendern…" : "Förhandsgranska aktiviteter"}</button></div>
       </form>
-      {previewReady && <p><button type="button" style={action} disabled={!authenticated || Boolean(busy)} onClick={displayTemporaryFeed}>Visa förhandsgranskad kalender i Family Hub</button></p>
+      {previewReady && <p><button type="button" style={action} disabled={!authenticated || Boolean(busy)} onClick={displayTemporaryFeed}>Visa förhandsgranskad kalender i Family Hub</button></p>}
       {notice && <p role="status" style={{ marginTop: 16 }}>{notice}</p>}
       {stats && <p><strong>{stats}</strong></p>}
       {results.length > 0 && <div style={{ maxHeight: 390, overflowY: "auto", marginTop: 16 }}>

@@ -319,7 +319,8 @@ export default function Home() {
             {
               icon: "⚽",
               title: "Elsas fotboll",
-              text: "Träningar, matcher och anmälningar"
+              text: "Testa kalendern från Svenskalag",
+              href: "/connections#sports"
             },
             {
               icon: "✨",
@@ -329,8 +330,9 @@ export default function Home() {
             },
             {
               icon: "⚙️",
-              title: "Inställningar",
-              text: "Familjens konton och anslutningar"
+              title: "Anslut kalendrar",
+              text: "Apple, Google, SportAdmin och Svenskalag",
+              href: "/connections"
             }
           ].map((item) => (
             <section

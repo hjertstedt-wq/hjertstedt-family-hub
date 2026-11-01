@@ -120,7 +120,7 @@ export default function ConnectionsPage() {
       {google && <p role="status">{google}</p>}
       <p style={{ ...guidance, fontSize: 13 }}>Google-anslutningen gäller tills den tillfälliga behörigheten går ut. Långvarig säker synkronisering och frånkoppling byggs i nästa steg.</p>
     </section>
-    <section style={panel}>
+    <section id="sports" style={panel}>
       <h2 style={{ marginTop: 0 }}>Fotboll och föreningsaktiviteter</h2>
       <p style={guidance}>Svenskalag och SportAdmin erbjuder prenumerationskalendrar. Kopiera länken från rätt lag eller barn och prova den här. Vi testar riktiga aktiviteter innan vi slår på import.</p>
       <form onSubmit={previewFeed} style={{ display: "grid", gap: 13 }}>

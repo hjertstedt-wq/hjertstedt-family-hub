@@ -1,61 +1,81 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "../supabase";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
-  const [authError] = useState(() => typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("auth_error") ?? "");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [authError, setAuthError] = useState("");
 
-  async function login() {
-    setMessage("Skickar inloggningslänk...");
-
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: {
-  emailRedirectTo: `${window.location.origin}/auth/callback`,
-},
+  useEffect(() => {
+    const error = new URLSearchParams(window.location.search).get("auth_error");
+    if (error) setAuthError(error);
+    void supabase.auth.getSession().then(({ data }) => {
+      if (data.session) window.location.replace("/");
     });
+  }, []);
 
+  async function login(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    setMessage("");
+    const { error } = await supabase.auth.signInWithPassword({
+      email: email.trim().toLowerCase(),
+      password,
+    });
     if (error) {
-      setMessage("Fel: " + error.message);
-    } else {
-      setMessage("Kontrollera din e-post – inloggningslänken är skickad.");
+      setMessage(error.message === "Invalid login credentials"
+        ? "Fel e-postadress eller lösenord. Kontot behöver ha ett lösenord registrerat i Supabase."
+        : "Inloggningen misslyckades: " + error.message);
+      setBusy(false);
+      return;
     }
+    window.location.replace("/");
+  }
+
+  async function sendMagicLink() {
+    if (!email.trim() || busy) return;
+    setBusy(true);
+    setMessage("");
+    const { error } = await supabase.auth.signInWithOtp({
+      email: email.trim().toLowerCase(),
+      options: { emailRedirectTo: window.location.origin + "/auth/callback", shouldCreateUser: false },
+    });
+    setMessage(error ? "Kunde inte skicka länken: " + error.message
+      : "En inloggningslänk har skickats. Öppna den i samma webbläsare.");
+    setBusy(false);
   }
 
   return (
-    <main style={{ padding: 32, fontFamily: "Arial, sans-serif" }}>
-      <h1>Hjertstedt Family Hub</h1>
-      <h2>Logga in</h2>
-
-      <p>Logga in för att komma åt familjens hubb.</p>
-
-      <input
-        type="email"
-        placeholder="E-postadress"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        style={{
-          padding: 12,
-          width: 300,
-          marginRight: 10,
-        }}
-      />
-
-      <button
-        onClick={login}
-        style={{
-          padding: 12,
-          cursor: "pointer",
-        }}
-      >
-        Skicka inloggningslänk
-      </button>
-
-      {authError && <p role="alert" style={{ color: "#b42318" }}>Inloggningen kunde inte slutföras ({authError}). Begär en ny länk och öppna den i samma Safari-fönster.</p>}
-      {message && <p>{message}</p>}
+    <main style={{ minHeight: "100vh", background: "#f4f6fa", padding: "48px 16px", fontFamily: "Arial, sans-serif", color: "#17253b" }}>
+      <section style={{ maxWidth: 440, margin: "0 auto", background: "white", borderRadius: 16, padding: 32, boxShadow: "0 4px 24px #17253b12" }}>
+        <h1>Hjertstedt Family Hub</h1>
+        <h2>Logga in</h2>
+        <p>Familjens kalender och aktiviteter på ett ställe.</p>
+        <form onSubmit={login}>
+          <label htmlFor="email">E-postadress</label>
+          <input id="email" type="email" autoComplete="email" required value={email} onChange={e => setEmail(e.target.value)}
+            style={{ display: "block", width: "100%", boxSizing: "border-box", padding: 12, margin: "8px 0 20px" }} />
+          <label htmlFor="password">Lösenord</label>
+          <input id="password" type="password" autoComplete="current-password" required value={password} onChange={e => setPassword(e.target.value)}
+            style={{ display: "block", width: "100%", boxSizing: "border-box", padding: 12, margin: "8px 0 20px" }} />
+          <button type="submit" disabled={busy} style={{ padding: 12, width: "100%", cursor: "pointer" }}>
+            {busy ? "Vänta..." : "Logga in"}
+          </button>
+        </form>
+        <details style={{ marginTop: 24 }}>
+          <summary>Alternativ: inloggningslänk via mejl</summary>
+          <p>Mejllänken kan kräva samma webbläsare som när den begärdes.</p>
+          <button type="button" disabled={busy || !email.trim()} onClick={sendMagicLink}>Skicka mejllänk</button>
+        </details>
+        {authError && <p role="alert">Tidigare inloggningsfel: {authError}</p>}
+        {message && <p role="status" style={{ marginTop: 20 }}>{message}</p>}
+        <p style={{ fontSize: 13, color: "#52627a", marginTop: 28 }}>Pilotversion – nya familjekonton öppnas efter säkerhetstest.</p>
+      </section>
     </main>
   );
 }

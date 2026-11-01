@@ -256,7 +256,7 @@ export default function SkiPage() {
                 <input type="checkbox" checked={selectedRaceIds.includes(r.id)} onChange={e=>setSelectedRaceIds(old=>e.target.checked?[...old,r.id]:old.filter(id=>id!==r.id))}/> Välj
               </label>}
               <strong>{r.title}</strong>
-              <div style={{fontSize:14,color:"#475569",marginTop:7}}>{new Date(r.starts_at).toLocaleDateString("sv-SE")} – {new Date(r.ends_at).toLocaleDateString("sv-SE")} · {r.location||"Ort ej angiven"} · {r.description||"Klass ej angiven"}</div>
+              <div style={{fontSize:14,color:"#475569",marginTop:7}}>{new Date(r.starts_at).toLocaleDateString("sv-SE")} – {(r.source==="ssf_stomprogram" && r.title.includes("USM-final 2027") ? new Date(new Date(r.ends_at).getTime()-86400000) : new Date(r.ends_at)).toLocaleDateString("sv-SE")} · {r.location||"Ort ej angiven"} · {r.description||"Klass ej angiven"}</div>
               <p style={{fontSize:13}}>{r.category==="ski_approved"?"Godkänd för "+assigned.map(p=>p.name).join(", "):"Möjlig tävling – inte i familjekalendern"}</p>
               <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                 {r.category==="ski_candidate"?allowed.map(p=><button key={p.id} disabled={busy!==null} onClick={()=>void approve(r,[p.id])} style={{padding:"10px 12px",border:0,borderRadius:8,background:"#dcf3e6",cursor:"pointer"}}>Godkänn för {p.name}</button>):<>

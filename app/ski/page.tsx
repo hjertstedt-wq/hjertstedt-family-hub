@@ -5,7 +5,7 @@ import { supabase } from "../supabase";
 import { eligibleForPerson } from "../lib/ski-eligibility";
 
 type Person = { id: string; name: string };
-type Race = { id: string; title: string; starts_at: string; ends_at: string; location: string | null; category: string; source: string; description: string | null };
+type Race = { id: string; title: string; starts_at: string; ends_at: string; location: string | null; category: string; source: string; description: string | null; external_id?: string | null };
 const key = (date: Date) => [date.getFullYear(), String(date.getMonth()+1).padStart(2,"0"), String(date.getDate()).padStart(2,"0")].join("-");
 const styles: React.CSSProperties = { width: "100%", boxSizing: "border-box", padding: 12, border: "1px solid #cbd5e1", borderRadius: 10, fontSize: 16 };
 
@@ -29,7 +29,7 @@ export default function SkiPage() {
   const reload = async () => {
     const [a,b,c] = await Promise.all([
       supabase.from("persons").select("id,name").order("name"),
-      supabase.from("calendar_events").select("id,title,starts_at,ends_at,location,category,source,description").in("category",["ski_candidate","ski_approved"]).order("starts_at"),
+      supabase.from("calendar_events").select("id,title,starts_at,ends_at,location,category,source,description,external_id").in("category",["ski_candidate","ski_approved"]).order("starts_at"),
       supabase.from("event_persons").select("event_id,person_id")
     ]);
     if (a.error || b.error || c.error) setError("Kunde inte läsa tävlingskalendern: "+(a.error?.message||b.error?.message||c.error?.message));
@@ -49,6 +49,87 @@ export default function SkiPage() {
     const name=persons.find(p=>p.id===filter)?.name.toLowerCase()??"";
     return (links[r.id]??[]).includes(filter) || (r.category==="ski_candidate" && eligibleForPerson(r.description,name));
   });
+  // SSF's published 2026/27 calendar window, not a confirmed personal start or a per-discipline schedule.
+  const usmSource = "ssf_stomprogram";
+  const usmTitle = "USM-final 2027 – Funäsdalen (planerad)";
+  const usmStart = "2027-04-05T00:00:00+02:00";
+  const usmEndExclusive = "2027-04-12T00:00:00+02:00";
+
+  async function addUsmForEligibleChild() {
+    setBusy("usm2027"); setError(""); setNotice("");
+    let createdId: string | null = null;
+    try {
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) throw new Error("Du måste logga in i Family Hub igen.");
+
+      const { data: matches, error: peopleError } = await supabase
+        .from("persons").select("id,name,family_id").ilike("name", "%Elsa%");
+      if (peopleError) throw new Error("Kunde inte kontrollera familjemedlemmar: " + peopleError.message);
+      const eligible = (matches ?? []).filter(p =>
+        /\\bElsa\\b/i.test(p.name) && eligibleForPerson("U16 · USM-final", p.name) && p.family_id
+      );
+      if (eligible.length !== 1) throw new Error(
+        "Hittade inte exakt en Elsa-profil i din familj. Kontrollera familjemedlemmarna innan USM sparas."
+      );
+      const elsa = eligible[0] as {id:string;name:string;family_id:string};
+      const externalId = "usm-final-2027-funasdalen-" + elsa.family_id;
+
+      // Query by source ID first. Also find a previously registered USM 2027 event
+      // for the same week to avoid copying it twice.
+      const { data: candidates, error: queryError } = await supabase
+        .from("calendar_events")
+        .select("id,title,category,source,external_id,starts_at")
+        .eq("family_id", elsa.family_id)
+        .gte("starts_at", "2027-04-04T20:00:00Z")
+        .lt("starts_at", "2027-04-07T00:00:00Z");
+      if (queryError) throw new Error("Kunde inte kontrollera befintliga aktiviteter: " + queryError.message);
+
+      const existing = (candidates ?? []).find(e =>
+        (e.source === usmSource && e.external_id === externalId) ||
+        (/\\bUSM\\b/i.test(e.title) && /2027|final/i.test(e.title))
+      );
+
+      let eventId = existing?.id;
+      if (!eventId) {
+        const { data: created, error: createError } = await supabase
+          .from("calendar_events").insert({
+            family_id: elsa.family_id,
+            title: usmTitle,
+            starts_at: new Date(usmStart).toISOString(),
+            ends_at: new Date(usmEndExclusive).toISOString(),
+            location: "Funäsdalen",
+            category: "ski_approved",
+            source: usmSource,
+            external_id: externalId,
+            description: "U16 · USM-final · 5–11 april 2027 enligt stomprogram. Grendagar och personlig start är ännu inte bekräftade."
+          }).select("id").single();
+        if (createError || !created) throw new Error("Kunde inte spara USM: " + (createError?.message ?? "Inget svar"));
+        eventId = created.id;
+        createdId = eventId;
+      } else if (existing?.category === "ski_candidate") {
+        const {error:approveError} = await supabase.from("calendar_events")
+          .update({category:"ski_approved"}).eq("id", eventId).eq("family_id", elsa.family_id);
+        if (approveError) throw new Error("Kunde inte godkänna den befintliga USM-aktiviteten: " + approveError.message);
+      }
+
+      const {error:linkError} = await supabase.from("event_persons").upsert(
+        { event_id: eventId, person_id: elsa.id, family_id: elsa.family_id },
+        { onConflict: "event_id,person_id" }
+      );
+      if (linkError) throw new Error("Kunde inte koppla USM till Elsa: " + linkError.message);
+
+      setNotice("USM-finalen 5–11 april 2027 är nu inlagd i familjekalendern för Elsa (U16). Alva har inte lagts till. Det är en planerad tävlingsvecka, inte ett bekräftat deltagande.");
+      await reload();
+    } catch (err) {
+      let detail = err instanceof Error ? err.message : "Okänt fel";
+      if (createdId) {
+        const {error:rollbackError} = await supabase.from("calendar_events").delete().eq("id",createdId);
+        if (rollbackError) detail += " Observera: aktiviteten kan ha sparats utan deltagare. Kontrollera kalendern innan du försöker igen.";
+      }
+      setError(detail);
+    } finally { setBusy(null); }
+  }
+
   async function addRace(e: React.FormEvent) {
     e.preventDefault();setError("");setNotice("");setBusy("create");
     const start=new Date(date+"T09:00:00");
@@ -127,6 +208,17 @@ export default function SkiPage() {
       <p>Förslag ligger separat. Först när du godkänner en tävling visas den i familjens huvudkalender.</p>
       {error&&<p role="alert" style={{color:"#b42318"}}>{error}</p>}
       {notice&&<p role="status" style={{color:"#166534"}}>{notice}</p>}
+      <section style={{background:"white",padding:20,borderRadius:16,marginBottom:18,border:"1px solid #d5e2f3"}}>
+        <h2 style={{marginTop:0}}>USM-final 2027 – Funäsdalen</h2>
+        <p><strong>5–11 april 2027</strong> · Planerat datumintervall enligt Svenska Skidförbundet och Region 5</p>
+        <p><strong>Berättigad:</strong> Elsa (U16, född 2011). <strong>Inte aktuell:</strong> Alva (U14, född 2014).</p>
+        <p style={{fontSize:14,color:"#52627a"}}>Lägg in veckan som en heldagsaktivitet för Elsa i familjekalendern. Exakta grendagar och slutligt deltagande markeras som obekräftade. Samma vecka läggs inte in flera gånger.</p>
+        <p><a href="https://www.skidor.com/idrotter/alpint/tavling/tavlingskalender--stomprogram" target="_blank" rel="noopener noreferrer">Skidförbundets officiella stomprogram</a></p>
+        <button type="button" disabled={busy!==null||loading} onClick={()=>void addUsmForEligibleChild()}
+          style={{background:"#315e9c",color:"white",border:0,borderRadius:10,padding:14,cursor:"pointer",fontSize:15,fontWeight:700}}>
+          {busy==="usm2027"?"Sparar USM…":"Lägg in USM 2027 för Elsa i familjekalendern"}
+        </button>
+      </section>
       <section style={{background:"white",padding:20,borderRadius:16,marginBottom:18}}>
         <h2>Registrera tävlingsförslag</h2>
         <p style={{fontSize:13,color:"#64748b"}}>Manuell registrering tills officiella tävlingsflöden är anslutna.</p>

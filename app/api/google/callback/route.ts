@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
 import { seal, unseal } from "../token-crypto";
+import { setGoogleAccessCookie } from "../access";
 
 export const runtime = "nodejs";
 
@@ -41,15 +42,19 @@ export async function GET(request: NextRequest) {
       }), cache: "no-store"
     });
     if (!exchange.ok) return result("exchange_failed");
-    const tokens = await exchange.json() as { access_token?: string; expires_in?: number };
+    const tokens = await exchange.json() as { access_token?: string; refresh_token?: string; expires_in?: number };
     if (!tokens.access_token) return result("exchange_failed");
-    // Store an encrypted, short-lived, browser cookie only. No refresh tokens are saved.
-    // The authorized user ID is checked again on every calendar read.
-    const response = result("connected_temporarily");
-    response.cookies.set("google_calendar_access", seal(JSON.stringify({ token: tokens.access_token, userId })), {
-      httpOnly: true, secure: true, sameSite: "lax", path: "/api/google",
-      maxAge: Math.min(Math.max(tokens.expires_in ?? 3600, 60), 3600)
-    });
+    // Encrypted, HttpOnly browser cookie. Refresh access is pilot-only and browser-scoped.
+    // A commercial release needs server-side encrypted storage, explicit revocation and account-level sync.
+    const expiresIn = Math.max(60, Number(tokens.expires_in) || 3600);
+    const refreshable = Boolean(tokens.refresh_token);
+    const response = result(refreshable ? "connected" : "connected_temporarily");
+    setGoogleAccessCookie(response, seal(JSON.stringify({
+      token: tokens.access_token,
+      refreshToken: tokens.refresh_token,
+      expiresAt: Date.now() + expiresIn * 1000,
+      userId
+    })), refreshable, expiresIn);
     return response;
   } catch { return result("configuration_error"); }
 }

@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../supabase";
+import { useSportsCalendar } from "../lib/integrations/use-sports-calendar";
+import type { SportsMember } from "../lib/integrations/pilot-sports";
 
 type Person = { id: string; name: string };
 
@@ -14,6 +16,8 @@ type CalendarEvent = {
   location: string | null;
   category: string;
   source: string;
+  sportsMember?: SportsMember;
+  sourceLabel?: string;
 };
 
 const familyColor = (name: string) => name.toLowerCase().includes("elsa") ? "#dceafd" : name.toLowerCase().includes("alva") ? "#fce3ed" : name.toLowerCase().includes("magdalena") ? "#f3e8ff" : "#dcf3e6";
@@ -28,6 +32,8 @@ export default function CalendarPage() {
   const [googleStatus, setGoogleStatus] = useState("");
   const [googleEvents, setGoogleEvents] = useState<CalendarEvent[]>([]);
   const [showGoogle, setShowGoogle] = useState(true);
+  const { sportsEvents, sportsStatus } = useSportsCalendar();
+  const [showSports, setShowSports] = useState(true);
   const [googlePreview, setGooglePreview] = useState<{title: string; starts_at?: string}[]>([]);
   const [googleBusy, setGoogleBusy] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -120,16 +126,23 @@ export default function CalendarPage() {
     return () => { active = false; };
   }, []);
 
-  const visibleEvents = useMemo(() => [...events, ...(showGoogle ? googleEvents : [])].filter(event => {
+  const visibleEvents = useMemo(() => [...events, ...(showGoogle ? googleEvents : []), ...(showSports ? sportsEvents : [])].filter(event => {
     if (event.category === "ski_candidate") return false;
-    if (personFilter !== "all" && !(eventParticipants[event.id] ?? []).includes(personFilter)) return false;
+    if (personFilter !== "all") {
+      if (event.category === "sports_feed") {
+        const name = persons.find(person => person.id === personFilter)?.name?.toLocaleLowerCase("sv-SE") ?? "";
+        if (event.sportsMember !== "both" && !name.includes(event.sportsMember ?? "unknown")) return false;
+      } else if (!(eventParticipants[event.id] ?? []).includes(personFilter)) return false;
+    }
     const query = search.trim().toLocaleLowerCase("sv-SE");
     if (!query) return true;
     return [event.title, event.location ?? "", dateKey(new Date(event.starts_at)), new Date(event.starts_at).toLocaleDateString("sv-SE")].some(value => value.toLocaleLowerCase("sv-SE").includes(query));
-  }), [events, googleEvents, showGoogle, eventParticipants, personFilter, search]);
+  }), [events, googleEvents, showGoogle, sportsEvents, showSports, eventParticipants, persons, personFilter, search]);
   const eventColor = (event: CalendarEvent) => {
     const member = persons.find(p => (eventParticipants[event.id] ?? []).includes(p.id));
-    return member ? familyColor(member.name) : event.source === "google" ? "#e8f7df" : "#e5e7eb";
+    return member ? familyColor(member.name) : event.category === "sports_feed"
+      ? event.sportsMember === "elsa" ? familyColor("Elsa") : event.sportsMember === "alva" ? familyColor("Alva") : "#f4ead8"
+      : event.source === "google" ? "#e8f7df" : "#e5e7eb";
   };
   const calendarDays = useMemo(() => {
     const firstWeekday = (month.getDay() + 6) % 7;
@@ -310,7 +323,7 @@ export default function CalendarPage() {
     }
     setDeletingId(null);
   };
-  const viewingEvent = [...events, ...googleEvents].find(event => event.id === viewingId);
+  const viewingEvent = [...events, ...googleEvents, ...sportsEvents].find(event => event.id === viewingId);
   const showDetails = (event: CalendarEvent) => {
     setSelected(dateKey(new Date(event.starts_at)));
     setViewingId(event.id);
@@ -337,6 +350,16 @@ export default function CalendarPage() {
         <h1 style={{ fontSize: "clamp(26px, 6vw, 34px)", marginBottom: 6 }}>Familjens kalender</h1>
         <p><a href="/ski">⛷ Visa alpina tävlingar</a> · <a href="/connections">Anslut kalendrar</a></p>
         <p style={{ color: "#64748b", marginTop: 0 }}>Gemensam översikt över familjens aktiviteter.</p>
+        <section style={{ background: "white", borderRadius: 16, padding: 20, marginTop: 18 }}>
+          <h2 style={{ marginTop: 0, fontSize: 20 }}>Föreningskalendrar – Svenskalag och SportAdmin</h2>
+          <p role="status" style={{ color: "#52627a" }}>{sportsStatus}</p>
+          <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <input type="checkbox" checked={showSports} onChange={e => setShowSports(e.target.checked)}/>
+            Visa föreningsaktiviteter i kalendern
+          </label>
+          <p><a href="/connections#sports">Välj eller ändra föreningskalendrar →</a></p>
+          <p style={{ color: "#64748b", fontSize: 13 }}>Pilot: hämtas skrivskyddat när kalendern öppnas och var 15:e minut när sidan är aktiv. Återkommande aktiviteter kan saknas tills vi färdigställt tidszoner och upprepningar.</p>
+        </section>
 
         <section style={{ background: "white", borderRadius: 16, padding: 20, marginTop: 18 }}>
           <h2 style={{ marginTop: 0, fontSize: 20 }}>Google Kalender – Familj</h2>
@@ -492,7 +515,7 @@ export default function CalendarPage() {
               <div><strong>Tid:</strong> {fullDay ? "Heldag" : start.toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" }) + " – " + end.toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" })}</div>
               <div><strong>Plats/ort:</strong> {viewingEvent.location || "Ej angiven"}</div>
               <div><strong>Deltagare:</strong> {names.length ? names.join(", ") : "Inga angivna"}</div>
-              <div><strong>Källa:</strong> {viewingEvent.source}</div>
+              <div><strong>Källa:</strong> {viewingEvent.sourceLabel ?? viewingEvent.source}</div>
             </div>;
           })()}
           {["manual", "staging_seed"].includes(viewingEvent.source) && <div style={{ display: "flex", gap: 10, marginTop: 20 }}>

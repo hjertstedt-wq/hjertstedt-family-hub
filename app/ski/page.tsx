@@ -66,7 +66,7 @@ export default function SkiPage() {
         .from("persons").select("id,name,family_id").ilike("name", "%Elsa%");
       if (peopleError) throw new Error("Kunde inte kontrollera familjemedlemmar: " + peopleError.message);
       const eligible = (matches ?? []).filter(p =>
-        /\\bElsa\\b/i.test(p.name) && eligibleForPerson("U16 · USM-final", p.name) && p.family_id
+        /\bElsa\b/i.test(p.name) && eligibleForPerson("U16 · USM-final", p.name) && p.family_id
       );
       if (eligible.length !== 1) throw new Error(
         "Hittade inte exakt en Elsa-profil i din familj. Kontrollera familjemedlemmarna innan USM sparas."
@@ -86,7 +86,7 @@ export default function SkiPage() {
 
       const existing = (candidates ?? []).find(e =>
         (e.source === usmSource && e.external_id === externalId) ||
-        (/\\bUSM\\b/i.test(e.title) && /2027|final/i.test(e.title))
+        (/\bUSM\b/i.test(e.title) && /2027|final/i.test(e.title))
       );
 
       let eventId = existing?.id;

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requirePilotIcloudUser } from "../../icloud/pilot-auth";
+import { authenticatedUserId } from "../../google/session-auth";
 import { parseCalendarFeed } from "../../../lib/integrations/calendar-feed";
 
 export const runtime = "nodejs";
@@ -44,8 +44,8 @@ async function boundedBody(response: Response): Promise<string> {
 }
 
 export async function POST(req: NextRequest) {
-  const denied = await requirePilotIcloudUser(req);
-  if (denied) return denied;
+  const userId = await authenticatedUserId(req);
+  if (!userId) return NextResponse.json({ error: "Logga in för att förhandsgranska kalendern." }, { status: 401 });
   let data: { source?: string; url?: string };
   try { data = await req.json(); }
   catch { return NextResponse.json({ error: "Ogiltig begäran." }, { status: 400 }); }

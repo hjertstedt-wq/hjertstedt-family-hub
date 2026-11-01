@@ -334,20 +334,37 @@ export default function CalendarPage() {
         <p style={{ color: "#64748b", marginTop: 0 }}>Gemensam översikt över familjens aktiviteter.</p>
 
         <section style={{ background: "white", borderRadius: 16, padding: 20, marginTop: 18 }}>
-          <h2 style={{ marginTop: 0, fontSize: 20 }}>Apple iCloud – Family</h2>
+          <h2 style={{ marginTop: 0, fontSize: 20 }}>Apple iCloud – Kalender och Family</h2>
           <p role="status">{icloudStatus}</p>
           <label style={{ display: "flex", alignItems: "center", gap: 8 }}><input type="checkbox" checked={showIcloud} onChange={e => setShowIcloud(e.target.checked)} /> Visa båda iCloud-kalendrarna</label>
-          <p style={{ color: "#64748b" }}>Family och Family ⚠️ visas automatiskt och skrivskyddat. Uppdateras när kalendern öppnas och var femte minut.</p>
+          <p style={{ color: "#64748b" }}>Kalender och Family visas skrivskyddat från pilotkontot. Uppdateras när kalendern öppnas och var femte minut.</p>
         </section>
         <section style={{ background: "white", borderRadius: 16, padding: 20, marginTop: 18 }}>
           <h2 style={{ marginTop: 0, fontSize: 20 }}>Google Kalender – Familj</h2>
           <p style={{ color: "#64748b" }}>Visa aktiviteter från kalendern Familj innan någon import görs.</p>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <a href="/api/google/connect" style={{ padding: "10px 14px", borderRadius: 8, background: "#315e9c", color: "white", textDecoration: "none" }}>Anslut Google</a>
+            <button type="button" disabled={googleBusy} onClick={async () => {
+              setGoogleBusy(true); setGoogleStatus("");
+              try {
+                const { data: { session } } = await supabase.auth.getSession();
+                if (!session) throw Error("Logga in i Family Hub först.");
+                const response = await fetch("/api/google/connect", {
+                  method: "POST", headers: { Authorization: "Bearer " + session.access_token }
+                });
+                const result = await response.json();
+                if (!response.ok || !result.url) throw Error(result.error ?? "Kunde inte starta Google.");
+                window.location.assign(result.url);
+              } catch (error) {
+                setGoogleStatus(error instanceof Error ? error.message : "Google-anslutningen misslyckades.");
+                setGoogleBusy(false);
+              }
+            }} style={{ padding: "10px 14px", borderRadius: 8, background: "#315e9c", color: "white", cursor: "pointer" }}>Anslut Google</button>
             <button type="button" disabled={googleBusy} onClick={async () => {
               setGoogleBusy(true); setGoogleStatus(""); setGooglePreview([]);
               try {
-                const response = await fetch("/api/google/family", { cache: "no-store" });
+                const { data: { session } } = await supabase.auth.getSession();
+                if (!session) throw Error("Logga in först.");
+                const response = await fetch("/api/google/family", { headers: { Authorization: "Bearer " + session.access_token }, cache: "no-store" });
                 const result = await response.json();
                 if (!response.ok) setGoogleStatus(result.error ?? "Kunde inte läsa kalendern.");
                 else if (result.status !== "preview") setGoogleStatus(result.status === "not_found" ? "Hittade ingen kalender med namnet Familj." : "Flera kalendrar heter Familj.");

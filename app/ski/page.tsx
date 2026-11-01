@@ -112,11 +112,15 @@ export default function SkiPage() {
         if (approveError) throw new Error("Kunde inte godkänna den befintliga USM-aktiviteten: " + approveError.message);
       }
 
-      const {error:linkError} = await supabase.from("event_persons").upsert(
-        { event_id: eventId, person_id: elsa.id, family_id: elsa.family_id },
-        { onConflict: "event_id,person_id" }
-      );
-      if (linkError) throw new Error("Kunde inte koppla USM till Elsa: " + linkError.message);
+      const {data:existingLink,error:readLinkError} = await supabase.from("event_persons")
+        .select("event_id").eq("event_id",eventId).eq("person_id",elsa.id).maybeSingle();
+      if (readLinkError) throw new Error("Kunde inte kontrollera deltagarkopplingen: " + readLinkError.message);
+      if (!existingLink) {
+        const {error:linkError} = await supabase.from("event_persons").insert({
+          event_id: eventId, person_id: elsa.id, family_id: elsa.family_id
+        });
+        if (linkError) throw new Error("Kunde inte koppla USM till Elsa: " + linkError.message);
+      }
 
       setNotice("USM-finalen 5–11 april 2027 är nu inlagd i familjekalendern för Elsa (U16). Alva har inte lagts till. Det är en planerad tävlingsvecka, inte ett bekräftat deltagande.");
       await reload();

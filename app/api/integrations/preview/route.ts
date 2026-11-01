@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requirePilotIcloudUser } from "../../icloud/pilot-auth";
+import { authenticatedUserId } from "../../google/session-auth";
 import { parseCalendarFeed } from "../../../lib/integrations/calendar-feed";
 export const runtime = "nodejs";
 export async function POST(req: NextRequest) {
- const denied=await requirePilotIcloudUser(req);
- if(denied)return denied;
+ const userId = await authenticatedUserId(req);
+ if (!userId) return NextResponse.json({ error: "Logga in för att förhandsgranska kalendern." }, { status: 401 });
  try{
   const body=await req.text();
   const events=parseCalendarFeed(body);

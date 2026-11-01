@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { unseal } from "../token-crypto";
+import { authenticatedUserId } from "../session-auth";
 
 export const runtime = "nodejs";
 
@@ -10,10 +11,16 @@ export async function GET(request: NextRequest) {
   if (process.env.GOOGLE_OAUTH_APP_ORIGIN !== new URL(request.url).origin) {
     return NextResponse.json({ error: "Wrong environment" }, { status: 403 });
   }
+  const userId = await authenticatedUserId(request);
+  if (!userId) return NextResponse.json({ error: "Logga in i Family Hub." }, { status: 401 });
   const encrypted = request.cookies.get("google_calendar_access")?.value;
   if (!encrypted) return NextResponse.json({ error: "Google account not connected" }, { status: 401 });
   try {
-    const accessToken = unseal(encrypted);
+    const connection = JSON.parse(unseal(encrypted)) as { userId?: string; token?: string };
+    if (connection.userId !== userId || !connection.token) {
+      return NextResponse.json({ error: "Google-kontot tillhör inte den inloggade användaren." }, { status: 403 });
+    }
+    const accessToken = connection.token;
     const headers = { Authorization: "Bearer " + accessToken };
     const calendarsResponse = await fetch("https://www.googleapis.com/calendar/v3/users/me/calendarList?maxResults=250", { headers, cache: "no-store" });
     if (!calendarsResponse.ok) return NextResponse.json({ error: "Google calendar access expired or denied" }, { status: 401 });

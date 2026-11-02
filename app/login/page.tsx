@@ -11,10 +11,12 @@ export default function LoginPage() {
   const [authError, setAuthError] = useState("");
 
   useEffect(() => {
-    const error = new URLSearchParams(window.location.search).get("auth_error");
+    const params = new URLSearchParams(window.location.search);
+    const error = params.get("auth_error");
+    if (params.get("reason") === "session_expired") setMessage("Din inloggning har gått ut. Logga in igen för att läsa familjens uppgifter.");
     if (error) setAuthError(error);
-    void supabase.auth.getSession().then(({ data }) => {
-      if (data.session) window.location.replace("/");
+    void supabase.auth.getUser().then(({ data, error }) => {
+      if (!error && data.user) window.location.replace("/");
     });
   }, []);
 

@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
+import { loadWithSessionRecovery, SessionExpiredError } from "./lib/session-recovery";
 
 type UpcomingEvent = { id: string; title: string; starts_at: string; ends_at: string; location: string | null };
 type Person = {
@@ -26,34 +27,32 @@ export default function Home() {
 
   useEffect(() => {
     async function loadFamily() {
-      const { data: { session }, error: authError } =
-        await supabase.auth.getSession();
-
-      if (authError || !session) {
-        window.location.replace("/login");
-        return;
-      }
-
-      setAccountEmail(session.user.email ?? "Okänt konto");
-      try { setDataSource(new URL(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").hostname); }
-      catch { setDataSource("Okänd Supabase-miljö"); }
-
-      const { data, error } = await supabase
-        .from("persons")
-        .select("id, name, email")
-        .order("created_at", { ascending: true });
-
-      if (error) setError(error.message);
-      else setPersons(data ?? []);
-
-      const { data: nextEvents, error: upcomingError } = await supabase.from("calendar_events")
-        .select("id,title,starts_at,ends_at,location")
-        .gte("ends_at", new Date().toISOString())
-        .neq("category", "ski_candidate")
-        .order("starts_at", { ascending: true }).limit(6);
-      if (upcomingError) setCalendarError("Kunde inte läsa kommande aktiviteter.");
-      else setUpcoming(nextEvents ?? []);
-      setLoading(false);
+      try {
+        const { user, result } = await loadWithSessionRecovery(supabase, async () => {
+          const [family, events] = await Promise.all([
+            supabase.from("persons").select("id, name, email").order("created_at", { ascending: true }),
+            supabase.from("calendar_events").select("id,title,starts_at,ends_at,location")
+              .gte("ends_at", new Date().toISOString()).neq("category", "ski_candidate")
+              .order("starts_at", { ascending: true }).limit(6)
+          ]);
+          return { family, events, errors: [family.error, events.error] };
+        });
+        setAccountEmail(user.email ?? "Okänt konto");
+        try { setDataSource(new URL(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").hostname); }
+        catch { setDataSource("Okänd Supabase-miljö"); }
+        if (result.family.error) setError("Kunde inte läsa familjen. Försök ladda om sidan.");
+        else setPersons(result.family.data ?? []);
+        if (result.events.error) setCalendarError("Kunde inte läsa kommande aktiviteter. Försök ladda om sidan.");
+        else setUpcoming(result.events.data ?? []);
+      } catch (failure) {
+        if (failure instanceof SessionExpiredError) {
+          window.location.replace("/login?reason=session_expired");
+          return;
+        }
+        const message = failure instanceof Error ? failure.message : "Kunde inte läsa uppgifterna. Försök ladda om sidan.";
+        setError(message);
+        setCalendarError(message);
+      } finally { setLoading(false); }
     }
 
     loadFamily();
@@ -179,7 +178,7 @@ export default function Home() {
 
           {loading ? (
             <p>Laddar familjen...</p>
-          ) : persons.length === 0 ? (
+          ) : error ? null : persons.length === 0 ? (
             <p>Inga familjemedlemmar hittades.</p>
           ) : (
             <div style={{
@@ -286,7 +285,7 @@ export default function Home() {
             <a href="/calendar" style={{ color: "#315e9c", fontWeight: 700 }}>Visa kalender →</a>
           </div>
           {calendarError && <p role="alert" style={{ color: "#b42318" }}>{calendarError}</p>}
-          {loading ? <p>Laddar kalender...</p> : upcoming.length === 0 ? <p style={{ color: "#64748b" }}>Inga kommande aktiviteter registrerade.</p> :
+          {loading ? <p>Laddar kalender...</p> : calendarError ? null : upcoming.length === 0 ? <p style={{ color: "#64748b" }}>Inga kommande aktiviteter registrerade.</p> :
             <div style={{ display: "grid", gap: 8, marginTop: 16 }}>
               {upcoming.map(event => <a key={event.id} href={"/calendar?event=" + encodeURIComponent(event.id)}
                 style={{ display: "block", padding: 12, borderRadius: 10, background: "#f4f6fa", color: "#17253b", textDecoration: "none" }}>

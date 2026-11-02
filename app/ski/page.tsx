@@ -148,7 +148,7 @@ export default function SkiPage() {
   async function approve(race:Race, ids:string[], openCalendar = false) {
     setError("");setNotice("");setBusy(race.id);
     if(!ids.length || ids.some(id=>!children.some(p=>p.id===id&&eligibleForPerson(race.description,p.name)))){setError("Välj en deltagare som tävlingen gäller för.");setBusy(null);return;}
-    const {error:linkError}=await supabase.from("event_persons").upsert(ids.map(person_id=>({event_id:race.id,person_id})),{onConflict:"event_id,person_id"});
+    const {error:linkError}=await supabase.from("event_persons").upsert(ids.map(person_id=>({event_id:race.id,person_id})),{onConflict:"event_id,person_id",ignoreDuplicates:true});
     if(linkError){setError("Kunde inte koppla deltagare: "+linkError.message);setBusy(null);return;}
     const {error:updateError}=await supabase.from("calendar_events").update({category:"ski_approved"}).eq("id",race.id).select("id").single();
     if(updateError)setError("Deltagarna sparades men tävlingen kunde inte godkännas: "+updateError.message);
@@ -168,7 +168,7 @@ export default function SkiPage() {
     for(const race of chosen){
       const eligible=children.filter(p=>eligibleForPerson(race.description,p.name));
       if(!eligible.length){failures.push(race.title+": oklar åldersklass");continue;}
-      const {error:linkError}=await supabase.from("event_persons").upsert(eligible.map(p=>({event_id:race.id,person_id:p.id})),{onConflict:"event_id,person_id"});
+      const {error:linkError}=await supabase.from("event_persons").upsert(eligible.map(p=>({event_id:race.id,person_id:p.id})),{onConflict:"event_id,person_id",ignoreDuplicates:true});
       if(linkError){failures.push(race.title+": "+linkError.message);continue;}
       const {error:updateError}=await supabase.from("calendar_events").update({category:"ski_approved"}).eq("id",race.id).select("id").single();
       if(updateError)failures.push(race.title+": "+updateError.message);

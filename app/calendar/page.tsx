@@ -526,8 +526,9 @@ export default function CalendarPage() {
                   </button>
                   {dayEvents.map(event => (
                     <button type="button" key={event.id} onClick={() => showDetails(event)}
-                      title={event.title} aria-label={"Visa aktivitet: " + event.title}
+                      title={calendarTimeLabel(event.starts_at, event.ends_at) + " · " + event.title} aria-label={"Visa aktivitet: " + event.title + ", " + calendarTimeLabel(event.starts_at, event.ends_at)}
                       style={{ background: eventColor(event), color: "#244c82", border: 0, borderRadius: 4, padding: "4px 5px", fontSize: 11, textAlign: "left", cursor: "pointer", overflowWrap: "anywhere" }}>
+                      <span style={{ display: "block", fontWeight: 700, marginBottom: 2 }}>{calendarTimeLabel(event.starts_at, event.ends_at)}</span>
                       {event.title}
                     </button>
                   ))}
@@ -545,7 +546,8 @@ export default function CalendarPage() {
           {(() => {
             const start = calendarDate(viewingEvent.starts_at);
             const end = calendarDate(viewingEvent.ends_at);
-            const fullDay = start.getHours() === 0 && start.getMinutes() === 0 && end.getHours() === 0 && end.getMinutes() === 0;
+            const fullDay = /^\d{4}-\d{2}-\d{2}$/.test(viewingEvent.starts_at) ||
+              (["manual", "staging_seed"].includes(viewingEvent.source) && start.getHours() === 0 && start.getMinutes() === 0 && end.getHours() === 0 && end.getMinutes() === 0);
             const last = new Date(end);
             if (fullDay) last.setDate(last.getDate() - 1);
             const fmt = (d: Date) => d.toLocaleDateString("sv-SE", { day: "numeric", month: "long", year: "numeric" });

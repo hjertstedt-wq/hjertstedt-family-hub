@@ -208,3 +208,15 @@ test('Apple app-password paste accepts separators and rejects incomplete or non-
     assert.equal(appPassword.normalizeAppleAppPassword(input),null);
   }
 });
+
+
+test('timed calendar labels preserve local times and midnight is not a date-only event', () => {
+  const dates = load('app/lib/calendar-dates.ts');
+  const original = process.env.TZ;
+  try {
+    process.env.TZ = 'Europe/Stockholm';
+    assert.equal(dates.calendarTimeLabel('2026-11-06T14:20:00Z', '2026-11-06T15:20:00Z'), '15:20–16:20');
+    assert.equal(dates.calendarTimeLabel('2026-11-06T00:00:00', '2026-11-07T00:00:00'), '00:00–00:00');
+    assert.equal(dates.calendarTimeLabel('2026-11-06', '2026-11-07'), 'Heldag');
+  } finally { if (original === undefined) delete process.env.TZ; else process.env.TZ = original; }
+});

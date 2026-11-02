@@ -1,3 +1,3 @@
 import { NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
-export function GET() { return NextResponse.json({ feature: "icloud", version: "probe-20261011", status: "ready" }, { headers: { "Cache-Control": "no-store" } }); }
+export function GET() { return NextResponse.json({ feature: "icloud", version: "private-caldav-v1", status: "requires_authenticated_setup" }, { headers: { "Cache-Control": "no-store" } }); }

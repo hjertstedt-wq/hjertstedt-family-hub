@@ -4,13 +4,16 @@ import { readFileSync } from "node:fs";
 
 const source = path => readFileSync(new URL("../" + path, import.meta.url), "utf8");
 
-test("iCloud is disabled without separate per-household credentials", () => {
-  for (const path of ["app/api/icloud/events/route.ts", "app/api/icloud/discover/route.ts"]) {
+test("iCloud routes authenticate and never use shared Apple credentials", () => {
+  for (const path of ["app/api/icloud/events/route.ts", "app/api/icloud/discover/route.ts", "app/api/icloud/connection/route.ts"]) {
     const code = source(path);
-    assert.match(code, /status:\s*"not_connected"/);
-    assert.match(code, /status:\s*503/);
+    assert.match(code, /integrationUser\(request\)/);
     assert.doesNotMatch(code, /ICLOUD_APP_PASSWORD|ICLOUD_APPLE_ID/);
   }
+  const store = source("app/lib/server/integration-store.ts");
+  assert.match(store, /authenticatedUserId\(request\)/);
+  assert.match(store, /private, no-store/);
+  assert.match(store, /encryptConfig/);
 });
 
 test("sports preview is authenticated, source allowlisted and no-store", () => {

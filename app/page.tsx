@@ -329,9 +329,9 @@ export default function Home() {
             },
             {
               icon: "⚙️",
-              title: "Anslut kalendrar",
+              title: "Kom igång med kalendrar",
               text: "Apple, Google, SportAdmin och Svenskalag",
-              href: "/connections"
+              href: "/onboarding"
             }
           ].map((item) => (
             <section

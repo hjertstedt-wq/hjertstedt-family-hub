@@ -1,13 +1,17 @@
-import { NextResponse } from "next/server";
-
+import { NextRequest } from "next/server";
+import { claimIcloudAttempt, integrationUser, connection, reply, failure } from "../../../lib/server/integration-store";
+import { openIcloud, choices, calendarId } from "../../../lib/server/icloud";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-// Disabled until each household can consent to its own private Apple calendar.
-// The former pilot credentials must never be used as shared, app-wide credentials.
-export async function GET() {
-  return NextResponse.json({
-    error: "iCloud är en valfri anslutning som ännu inte har aktiverats för din familj.",
-    status: "not_connected"
-  }, { status: 503, headers: { "Cache-Control": "no-store" } });
+export const maxDuration = 60;
+export async function GET(request: NextRequest) {
+  try {
+    const userId = await integrationUser(request);
+    await claimIcloudAttempt(request);
+    const { config } = await connection(request, userId);
+    if (!config) return reply({ status: "not_connected", calendars: [] });
+    const { calendars } = await openIcloud(config);
+    return reply({ status: config.calendarUrl ? "active" : "choose_calendar", calendars: choices(calendars),
+      selectedId: config.calendarUrl ? calendarId(config.calendarUrl) : null, calendarName: config.calendarName ?? null });
+  } catch (error) { return failure(error); }
 }

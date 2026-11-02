@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../supabase";
+import { calendarDate, calendarTimeLabel } from "../lib/calendar-dates";
+import { useIcloudCalendar } from "../lib/integrations/use-icloud-calendar";
 import { useSportsCalendar } from "../lib/integrations/use-sports-calendar";
 import type { SportsMember } from "../lib/integrations/pilot-sports";
 
@@ -63,6 +65,16 @@ export default function CalendarPage() {
   useEffect(() => { if (window.matchMedia("(max-width: 640px)").matches) setView("day"); }, []);
   const [search, setSearch] = useState("");
   const [repeatWeeks, setRepeatWeeks] = useState(1);
+
+  const [showIcloud, setShowIcloud] = useState(true);
+  const range = useMemo(() => {
+    const anchor = view === "month" ? month : new Date(selected + "T12:00:00");
+    const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+    const start = view === "month" ? addDays(first, -((first.getDay() + 6) % 7)) : addDays(anchor, -7);
+    const end = view === "month" ? addDays(start, 42) : addDays(anchor, 8);
+    return { start: start.toISOString(), end: end.toISOString() };
+  }, [month, selected, view]);
+  const { icloudEvents, icloudStatus, icloudBusy, refreshIcloud } = useIcloudCalendar(range.start, range.end);
 
   useEffect(() => {
     async function loadEvents() {
@@ -156,7 +168,7 @@ export default function CalendarPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const visibleEvents = useMemo(() => [...events, ...(showGoogle ? googleEvents : []), ...(showSports ? sportsEvents : [])].filter(event => {
+  const visibleEvents = useMemo(() => [...events, ...(showIcloud ? icloudEvents : []), ...(showGoogle ? googleEvents : []), ...(showSports ? sportsEvents : [])].filter(event => {
     if (event.category === "ski_candidate") return false;
     if (personFilter !== "all") {
       if (event.category === "sports_feed") {
@@ -166,13 +178,13 @@ export default function CalendarPage() {
     }
     const query = search.trim().toLocaleLowerCase("sv-SE");
     if (!query) return true;
-    return [event.title, event.location ?? "", dateKey(new Date(event.starts_at)), new Date(event.starts_at).toLocaleDateString("sv-SE")].some(value => value.toLocaleLowerCase("sv-SE").includes(query));
-  }), [events, googleEvents, showGoogle, sportsEvents, showSports, eventParticipants, persons, personFilter, search]);
+    return [event.title, event.location ?? "", dateKey(calendarDate(event.starts_at)), calendarDate(event.starts_at).toLocaleDateString("sv-SE")].some(value => value.toLocaleLowerCase("sv-SE").includes(query));
+  }), [events, icloudEvents, showIcloud, googleEvents, showGoogle, sportsEvents, showSports, eventParticipants, persons, personFilter, search]);
   const eventColor = (event: CalendarEvent) => {
     const member = persons.find(p => (eventParticipants[event.id] ?? []).includes(p.id));
     return member ? familyColor(member.name) : event.category === "sports_feed"
       ? event.sportsMember === "elsa" ? familyColor("Elsa") : event.sportsMember === "alva" ? familyColor("Alva") : "#f4ead8"
-      : event.source === "google" ? "#e8f7df" : "#e5e7eb";
+      : event.source === "icloud" ? "#e2edff" : event.source === "google" ? "#e8f7df" : "#e5e7eb";
   };
   const calendarDays = useMemo(() => {
     const firstWeekday = (month.getDay() + 6) % 7;
@@ -189,8 +201,8 @@ export default function CalendarPage() {
   const eventsByDay = useMemo(() => {
     const result: Record<string, CalendarEvent[]> = {};
     for (const event of visibleEvents) {
-      const start = new Date(event.starts_at);
-      const end = new Date(event.ends_at);
+      const start = calendarDate(event.starts_at);
+      const end = calendarDate(event.ends_at);
       if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) continue;
       // Multi-day events are visible on every calendar day they cover.
       const day = new Date(start.getFullYear(), start.getMonth(), start.getDate());
@@ -317,8 +329,8 @@ export default function CalendarPage() {
     setFormSuccess("");
     setTitle(event.title);
     setLocation(event.location ?? "");
-    const start = new Date(event.starts_at);
-    const end = new Date(event.ends_at);
+    const start = calendarDate(event.starts_at);
+    const end = calendarDate(event.ends_at);
     const isAllDay = start.getHours() === 0 && start.getMinutes() === 0 && end.getHours() === 0 && end.getMinutes() === 0;
     const lastDay = new Date(end);
     if (isAllDay) lastDay.setDate(lastDay.getDate() - 1);
@@ -353,9 +365,9 @@ export default function CalendarPage() {
     }
     setDeletingId(null);
   };
-  const viewingEvent = [...events, ...googleEvents, ...sportsEvents].find(event => event.id === viewingId);
+  const viewingEvent = [...events, ...icloudEvents, ...googleEvents, ...sportsEvents].find(event => event.id === viewingId);
   const showDetails = (event: CalendarEvent) => {
-    setSelected(dateKey(new Date(event.starts_at)));
+    setSelected(dateKey(calendarDate(event.starts_at)));
     setViewingId(event.id);
     setShowForm(false);
   };
@@ -380,6 +392,14 @@ export default function CalendarPage() {
         <h1 style={{ fontSize: "clamp(26px, 6vw, 34px)", marginBottom: 6 }}>Familjens kalender</h1>
         <p><a href="/ski">⛷ Visa alpina tävlingar</a> · <a href="/connections">Anslut kalendrar</a></p>
         <p style={{ color: "#64748b", marginTop: 0 }}>Gemensam översikt över familjens aktiviteter.</p>
+        <section style={{ background: "white", borderRadius: 16, padding: 20, marginTop: 18 }}>
+          <h2 style={{ marginTop: 0, fontSize: 20 }}>Apple / iCloud</h2>
+          <label style={{ display: "flex", gap: 8, alignItems: "center" }}><input type="checkbox" checked={showIcloud} onChange={e => setShowIcloud(e.target.checked)} />Visa iCloud-aktiviteter</label>
+          <p role="status">{icloudStatus}</p>
+          <p><a href="/onboarding#icloud">Anslut eller hantera privat iCloud-kalender →</a></p>
+          <button type="button" disabled={icloudBusy} onClick={refreshIcloud} style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid #cbd5e1", background: "white", cursor: "pointer" }}>{icloudBusy ? "Hämtar iCloud…" : "Uppdatera iCloud"}</button>
+        </section>
+
         <section style={{ background: "white", borderRadius: 16, padding: 20, marginTop: 18 }}>
           <h2 style={{ marginTop: 0, fontSize: 20 }}>Föreningskalendrar – Svenskalag och SportAdmin</h2>
           <p role="status" style={{ color: "#52627a" }}>{sportsStatus}</p>
@@ -523,8 +543,8 @@ export default function CalendarPage() {
             <button type="button" onClick={() => setViewingId(null)} style={{ border: 0, background: "#f2f5fa", borderRadius: 8, padding: "8px 12px", cursor: "pointer" }}>Stäng ×</button>
           </div>
           {(() => {
-            const start = new Date(viewingEvent.starts_at);
-            const end = new Date(viewingEvent.ends_at);
+            const start = calendarDate(viewingEvent.starts_at);
+            const end = calendarDate(viewingEvent.ends_at);
             const fullDay = start.getHours() === 0 && start.getMinutes() === 0 && end.getHours() === 0 && end.getMinutes() === 0;
             const last = new Date(end);
             if (fullDay) last.setDate(last.getDate() - 1);
@@ -550,7 +570,7 @@ export default function CalendarPage() {
             selectedEvents.length === 0 ? <p style={{ color: "#64748b" }}>Inga aktiviteter denna dag ännu.</p> :
             selectedEvents.map(event => <article key={event.id} style={{ borderTop: "1px solid #e8edf4", padding: "14px 0" }}>
               <button type="button" onClick={() => showDetails(event)} style={{ border: 0, background: "transparent", padding: 0, fontWeight: 700, color: "#315e9c", cursor: "pointer", textAlign: "left" }}>{event.title} → Visa information</button>
-              <div style={{ color: "#64748b", fontSize: 14, marginTop: 5 }}>{new Date(event.starts_at).toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" })}–{new Date(event.ends_at).toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" })}{event.location ? " · " + event.location : ""}</div>
+              <div style={{ color: "#64748b", fontSize: 14, marginTop: 5 }}>{calendarTimeLabel(event.starts_at, event.ends_at)}{event.location ? " · " + event.location : ""}</div>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 8 }}>
                 <small style={{ color: "#8492a6" }}>Källa: {event.source}</small>
                 {["manual", "staging_seed"].includes(event.source) && (

@@ -153,6 +153,7 @@ export default function ConnectionsPage() {
       <a href="/calendar" style={{ color: "#315e9c" }}>Familjekalender</a>
       <a href="/ski" style={{ color: "#315e9c" }}>Tävlingskalender</a>
     </nav>
+    <p><a href="/onboarding">Ny här? Kom igång steg för steg →</a></p>
     <h1 style={{ fontSize: "clamp(28px,5vw,43px)", marginBottom: 12 }}>Koppla familjens kalendrar</h1>
     <p style={{ ...guidance, maxWidth: 730, marginBottom: 30 }}>En plats för familjens aktiviteter. Vi testar läsning från varje källa separat innan vi aktiverar automatisk import och synkronisering. Inga kontolösenord från andra tjänster ska anges här.</p>
     {!authenticated && <p role="alert" style={{ color: "#ad2d2d" }}>Logga in för att prova anslutningarna. <a href="/login">Gå till inloggningen</a>.</p>}
@@ -178,10 +179,11 @@ export default function ConnectionsPage() {
       {googleEventCount !== null && <p style={{ color: "#216344", fontWeight: 700 }}>Google: {googleEventCount} aktiviteter hittades i den valda kalendern. <a href="/calendar">Öppna familjekalendern →</a></p>}
       <p style={{ ...guidance, fontSize: 13 }}>Kalendervalet sparas säkert på ditt konto mellan enheter. Google-godkännandet är fortfarande knutet till webbläsaren: välj Anslut Google även på iPhone första gången. Behörigheten förnyas automatiskt om Google medger det.</p>
     </section>
-    <section style={panel}>
-      <h2 style={{ marginTop: 0 }}>Apple Kalender / iCloud – valfritt för andra familjer</h2>
-      <p style={guidance}>Er familj använder inte iCloud som kalenderkälla. Därför hämtar Family Hub inga Apple-aktiviteter automatiskt. En framtida familj som använder iCloud ska kunna lägga till <strong>sitt eget</strong> konto frivilligt.</p>
-      <p style={{ ...guidance, fontSize: 14, marginBottom: 0 }}>Status: separat och privat iCloud-anslutning är under utveckling. Ingen Apple-koppling är aktiverad för den här familjen.</p>
+    <section id="icloud" style={panel}>
+      <h2 style={{ marginTop: 0 }}>Apple / iCloud – privat eller delad kalender</h2>
+      <p style={guidance}>Anslut kalendern där den faktiskt ligger. En delad iCloud-kalender som Family ansluts via Apple, även när den visas i samma kalenderapp som Google.</p>
+      <p><a href="/onboarding#icloud" style={{ ...action, textDecoration: "none", display: "inline-block" }}>Kom igång med iCloud →</a></p>
+      <p style={{ ...guidance, fontSize: 13 }}>Steg för steg: skapa hushåll, anslut ditt Apple-konto privat, välj kalender och visa aktiviteterna. Serverlagring och kryptering kontrolleras innan anslutningsuppgifter tas emot.</p>
     </section>
     <section id="sports" style={panel}>
       <h2 style={{ marginTop: 0 }}>Fotboll och föreningsaktiviteter</h2>

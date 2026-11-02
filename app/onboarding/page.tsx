@@ -2,6 +2,8 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../supabase";
 
+import { normalizeAppleAppPassword } from "../lib/integrations/apple-app-password";
+
 type Calendar = { id: string; name: string };
 const button: React.CSSProperties = { padding: "12px 16px", borderRadius: 10, border: "1px solid #c5d3e4", background: "#315e9c", color: "white", cursor: "pointer", fontWeight: 700 };
 const field: React.CSSProperties = { display: "block", width: "100%", boxSizing: "border-box", padding: 12, border: "1px solid #bdcbe0", borderRadius: 9, marginTop: 7, marginBottom: 18 };
@@ -99,7 +101,9 @@ export default function Onboarding() {
           <p><a href="https://support.apple.com/sv-se/102654" target="_blank" rel="noopener noreferrer">Apples instruktioner för appspecifika lösenord</a></p>
           <form onSubmit={event => { event.preventDefault(); void act(async () => {
             try {
-              const result = await request("/api/icloud/connection", "POST", { username, password, consent });
+              const normalized = normalizeAppleAppPassword(password);
+              if (!normalized) throw Error("Det appspecifika lösenordet ska innehålla 16 bokstäver. Du kan klistra in det med eller utan bindestreck eller mellanslag.");
+              const result = await request("/api/icloud/connection", "POST", { username, password: normalized, consent });
               showConnection(result); setReconnect(false);
               setNotice(result.status === "active" ? "Family hittades och är ansluten. Öppna kalendern för att läsa aktiviteterna." : "Apple-kontot är anslutet. Välj kalender nedan.");
             } finally { setPassword(""); }
@@ -107,7 +111,8 @@ export default function Onboarding() {
             <label htmlFor="apple-account">Apple-kontots e-postadress</label>
             <input id="apple-account" type="email" autoComplete="off" required maxLength={254} value={username} onChange={e => setUsername(e.target.value)} style={field} />
             <label htmlFor="apple-app-password">Appspecifikt lösenord</label>
-            <input id="apple-app-password" type="password" autoComplete="off" required maxLength={19} pattern="[a-zA-Z]{4}(-[a-zA-Z]{4}){3}" placeholder="xxxx-xxxx-xxxx-xxxx" value={password} onChange={e => setPassword(e.target.value)} style={field} />
+            <input id="apple-app-password" type="password" autoComplete="off" required maxLength={128} autoCapitalize="none" autoCorrect="off" spellCheck={false} aria-describedby="apple-password-format" placeholder="xxxx-xxxx-xxxx-xxxx" value={password} onChange={e => setPassword(e.target.value)} style={field} />
+            <p id="apple-password-format" style={{ fontSize: 13 }}>16 bokstäver. Klistra in med eller utan bindestreck eller mellanslag.</p>
             <p style={{ fontSize: 13, lineHeight: 1.6 }}>Appen gör endast läsningar. Apples appspecifika lösenord kan ge bredare behörigheter än enbart kalenderläsning. Det lagras krypterat på servern och visas aldrig igen. Du kan återkalla det hos Apple när som helst.</p>
             <label style={{ display: "flex", alignItems: "start", gap: 9, lineHeight: 1.5, marginBottom: 18 }}><input type="checkbox" required checked={consent} onChange={e => setConsent(e.target.checked)} />Jag godkänner att Family Hub sparar anslutningen krypterat och läser den kalender jag väljer för mitt konto.</label>
             <button style={button} disabled={busy || !consent}>{busy ? "Ansluter…" : "Anslut privat iCloud-kalender"}</button>

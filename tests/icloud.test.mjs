@@ -14,6 +14,7 @@ function load(path, mocks = {}) {
 class IntegrationError extends Error { constructor(code,message,status=503) { super(message); this.code=code; this.status=status; } }
 const adapter = load('app/lib/server/icloud.ts', { './integration-store': { IntegrationError } });
 const normalizer = load('app/lib/server/icloud-events.ts', { 'ical.js': { default: ICAL } });
+const appPassword = load("app/lib/integrations/apple-app-password.ts");
 const crypto = load('app/lib/server/integration-crypto.ts');
 const ics = body => 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\n' + body.replaceAll('\n','\r\n') + '\r\nEND:VCALENDAR';
 const range = [new Date('2026-11-01T00:00:00Z'),new Date('2026-12-01T00:00:00Z')];
@@ -171,6 +172,7 @@ test('iCloud API authenticates, validates app passwords, selects Family and neve
   };
   const api=load('app/api/icloud/connection/route.ts',{
     '../../../lib/server/integration-store':store,
+    '../../../lib/integrations/apple-app-password': appPassword,
     '../../../lib/server/icloud':{...adapter,openIcloud:async()=>({calendars})}
   });
   const request=(body,authenticated=true)=>new Request('https://staging.example/api/icloud/connection',{
@@ -195,4 +197,14 @@ test('iCloud API authenticates, validates app passwords, selects Family and neve
   assert.equal((await (await api.POST(request(valid))).json()).status,'choose_calendar');
   assert.equal(saved.calendarUrl,undefined);
   await api.DELETE(request({}));assert.equal(saved,null);
+});
+
+
+test('Apple app-password paste accepts separators and rejects incomplete or non-letter credentials', () => {
+  for (const input of ['aaaabbbbccccdddd','aaaa-bbbb-cccc-dddd','AAAA BBBB CCCC DDDD',' aaaa–bbbb–cccc–dddd\n','aaaa\u00a0bbbb\u00a0cccc\u00a0dddd']) {
+    assert.equal(appPassword.normalizeAppleAppPassword(input),'aaaa-bbbb-cccc-dddd');
+  }
+  for (const input of ['',null,123,'aaaa-bbbb-cccc','aaaa-bbbb-cccc-dddd-eeee','aaaa-bbbb-cccc-1234','aaaa.bbbb.cccc.dddd']) {
+    assert.equal(appPassword.normalizeAppleAppPassword(input),null);
+  }
 });

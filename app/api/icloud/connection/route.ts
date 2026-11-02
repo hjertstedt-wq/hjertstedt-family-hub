@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { claimIcloudAttempt, connection, saveConnection, integrationUser, failure, reply, IntegrationError, db, household } from "../../../lib/server/integration-store";
 import { openIcloud, choices, calendarId } from "../../../lib/server/icloud";
+import { normalizeAppleAppPassword } from "../../../lib/integrations/apple-app-password";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -17,11 +18,12 @@ export async function POST(request: NextRequest) {
     // Fail before accepting credentials if server storage/encryption is absent.
     const { home } = await connection(request, userId, false);
     const body = await input(request);
+    const password = normalizeAppleAppPassword(body.password);
     if (body.consent !== true || typeof body.username !== "string" || body.username.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.username) ||
-        typeof body.password !== "string" || !/^[a-z]{4}(?:-[a-z]{4}){3}$/i.test(body.password.trim())) {
-      throw new IntegrationError("invalid_input", "Ange din Apple-kontoadress och ett appspecifikt lösenord i formatet xxxx-xxxx-xxxx-xxxx samt godkänn anslutningen.", 400);
+        !password) {
+      throw new IntegrationError("invalid_input", "Ange din Apple-kontoadress och ett appspecifikt lösenord med 16 bokstäver (med eller utan bindestreck) samt godkänn anslutningen.", 400);
     }
-    const config = { username: body.username.trim(), password: body.password.trim() };
+    const config = { username: body.username.trim(), password };
     const { calendars } = await openIcloud(config);
     const available = choices(calendars);
     const exact = available.filter(calendar => calendar.name === "Family");

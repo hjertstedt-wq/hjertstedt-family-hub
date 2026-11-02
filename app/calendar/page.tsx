@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../supabase";
 import { useSportsCalendar } from "../lib/integrations/use-sports-calendar";
-import { readSelectedGoogleCalendar } from "../lib/integrations/google-selection";
 import type { SportsMember } from "../lib/integrations/pilot-sports";
 
 type Person = { id: string; name: string };
@@ -112,9 +111,7 @@ export default function CalendarPage() {
         setGoogleEvents([]);
         return;
       }
-      const selectedId = readSelectedGoogleCalendar(user.id);
-      const url = "/api/google/family" + (selectedId ? "?calendarId=" + encodeURIComponent(selectedId) : "");
-      const response = await fetch(url, {
+      const response = await fetch("/api/google/family", {
         headers: { Authorization: "Bearer " + session.access_token }, cache: "no-store"
       });
       const data = await response.json() as {

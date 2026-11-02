@@ -1,16 +1,16 @@
-// Browser-local Google calendar choice for staging pilots.
-// This setting is account-scoped but is not yet shared across devices.
-const prefix = "hfh-google-calendar-v1:";
+export type GoogleCalendarChoice = { id: string; summary?: string; primary?: boolean };
 
-export function readSelectedGoogleCalendar(userId: string): string | null {
-  if (!userId || typeof window === "undefined") return null;
-  try {
-    const id = window.localStorage.getItem(prefix + userId);
-    return id && id.length <= 1024 ? id : null;
-  } catch { return null; }
+// A user preference, never an authorization claim. Validate against Google's
+// current Calendar List before reading events, including after account switches.
+export const googleSelectionKey = "hfh_google_family_calendar_v2";
+
+export function readSelectedGoogleCalendar(metadata?: Record<string, unknown>): string | null {
+  const value = metadata?.[googleSelectionKey];
+  return typeof value === "string" && value.length > 0 && value.length <= 1024 ? value : null;
 }
 
-export function saveSelectedGoogleCalendar(userId: string, calendarId: string) {
-  if (!userId || !calendarId || calendarId.length > 1024 || typeof window === "undefined") return;
-  window.localStorage.setItem(prefix + userId, calendarId);
+export function selectFamilyCalendar(calendars: GoogleCalendarChoice[], savedId: string | null, requestedId: string | null) {
+  const matches = calendars.filter(calendar => calendar.summary === "Family");
+  if (requestedId) return matches.find(calendar => calendar.id === requestedId);
+  return matches.find(calendar => calendar.id === savedId) ?? (matches.length === 1 ? matches[0] : undefined);
 }

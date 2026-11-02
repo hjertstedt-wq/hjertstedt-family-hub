@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { authenticatedUserId } from "../session-auth";
+import { authenticatedUser } from "../session-auth";
 import { getGoogleAccess, setGoogleAccessCookie } from "../access";
+
+import { readSelectedGoogleCalendar, selectFamilyCalendar } from "../../../lib/integrations/google-selection";
+import { saveGoogleCalendar } from "../selection-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,13 +33,13 @@ export async function GET(request: NextRequest) {
     error: "Google är inte konfigurerat för den här webbadressen. Använd stagingens vanliga adress."
   }, 503);
 
-  const userId = await authenticatedUserId(request);
-  if (!userId) return send({
+  const user = await authenticatedUser(request);
+  if (!user) return send({
     status: "not_authenticated",
     error: "Logga in i Family Hub innan du öppnar Google Kalender."
   }, 401);
 
-  const access = await getGoogleAccess(request, userId);
+  const access = await getGoogleAccess(request, user.id);
   if ("reason" in access) return send({ status: access.reason, error: access.error }, access.status);
 
   const updatedCookie = access.nextCookie;
@@ -78,39 +81,39 @@ export async function GET(request: NextRequest) {
       primary: Boolean(calendar.primary)
     }));
 
-    if (new URL(request.url).searchParams.get("list") === "1") {
-      return respond({
-        status: "calendars", calendars: available, refreshable: access.refreshable
-      });
+    // A later page could contain a second Family calendar: never guess.
+    if (nextCalendarToken) return respond({
+      status: "calendar_list_incomplete",
+      error: "Hela kalenderlistan kunde inte läsas. Försök igen innan kalendern väljs."
+    }, 502);
+
+    const savedId = readSelectedGoogleCalendar(user.user_metadata);
+    const requested = new URL(request.url).searchParams.get("calendarId");
+    const selected = selectFamilyCalendar(calendars, savedId, requested);
+    const familyCalendars = available.filter(calendar => calendar.name === "Family");
+    if (!selected) return respond({
+      status: familyCalendars.length ? "choose_calendar" : "calendar_not_found",
+      error: requested
+        ? "Den valda kalendern är inte längre en tillgänglig Family-kalender. Klicka på Hitta Family igen."
+        : familyCalendars.length
+        ? "Flera kalendrar heter exakt Family. Välj rätt kalender nedan."
+        : "Ingen kalender heter exakt Family i det anslutna Google-kontot. Kontrollera konto och kalendernamn.",
+      calendars: familyCalendars
+    }, requested ? 404 : 200);
+
+    if (savedId !== selected.id) {
+      try { await saveGoogleCalendar(request, user.id, selected.id); }
+      catch { return respond({
+        status: "selection_save_failed",
+        error: "Family hittades men kalendervalet kunde inte sparas på ditt konto. Försök igen."
+      }, 503); }
     }
 
-    const requested = new URL(request.url).searchParams.get("calendarId");
-    let selected: GoogleCalendar | undefined;
-    if (requested) {
-      selected = calendars.find(calendar => calendar.id === requested);
-      if (!selected) return respond({
-        status: "calendar_not_found",
-        error: "Den tidigare valda Google-kalendern hittades inte. Välj en ny kalender.",
-        calendars: available
-      }, 404);
-    } else {
-      for (const name of ["familj", "family"]) {
-        const matches = calendars.filter(calendar =>
-          calendar.summary?.trim().toLocaleLowerCase("sv-SE") === name
-        );
-        if (matches.length === 1) { selected = matches[0]; break; }
-        if (matches.length > 1) break;
-      }
-      if (!selected) {
-        return respond({
-          status: "choose_calendar",
-          error: available.length === 0
-            ? "Google-kontot saknar tillgängliga kalendrar."
-            : "Välj vilken Google-kalender du vill visa i Family Hub.",
-          calendars: available
-        });
-      }
-    }
+    if (new URL(request.url).searchParams.get("list") === "1") return respond({
+      status: "calendars", calendars: familyCalendars,
+      calendar: { id: selected.id, name: "Family" }, selectionSaved: true,
+      refreshable: access.refreshable
+    });
 
     const timeMin = new Date();
     timeMin.setDate(timeMin.getDate() - 30);
@@ -151,7 +154,8 @@ export async function GET(request: NextRequest) {
     return respond({
       status: "preview",
       calendar: { id: selected.id, name: selected.summary ?? "Namnlös kalender" },
-      calendars: available,
+      calendars: familyCalendars,
+      selectionSaved: true,
       refreshable: access.refreshable,
       truncated: Boolean(nextEventToken),
       events: events.filter(event => event.status !== "cancelled" && Boolean(event.id))

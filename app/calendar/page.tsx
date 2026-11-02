@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../supabase";
+import { matchesCalendarFilter, type CalendarFilter } from "../lib/integrations/calendar-filters";
 import { calendarDate, calendarTimeLabel } from "../lib/calendar-dates";
 import { useIcloudCalendar } from "../lib/integrations/use-icloud-calendar";
 import { useSportsCalendar } from "../lib/integrations/use-sports-calendar";
@@ -61,7 +62,7 @@ export default function CalendarPage() {
   const [month, setMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [selected, setSelected] = useState(() => dateKey(new Date()));
   const [view, setView] = useState<"month" | "week" | "day">("month");
-  const [personFilter, setPersonFilter] = useState("all");
+  const [calendarFilter, setCalendarFilter] = useState<CalendarFilter>("all");
   useEffect(() => { if (window.matchMedia("(max-width: 640px)").matches) setView("day"); }, []);
   const [search, setSearch] = useState("");
   const [repeatWeeks, setRepeatWeeks] = useState(1);
@@ -77,6 +78,7 @@ export default function CalendarPage() {
   const { icloudEvents, icloudStatus, icloudBusy, refreshIcloud } = useIcloudCalendar(range.start, range.end);
 
   useEffect(() => {
+    let initialLoad = true;
     async function loadEvents() {
       const { data: { user }, error: authError } = await supabase.auth.getUser();
       if (authError || !user) {
@@ -91,9 +93,11 @@ export default function CalendarPage() {
       if (queryError) setError(queryError.message);
       else {
         setEvents(data ?? []);
-        const eventId = new URLSearchParams(window.location.search).get("event");
+        const params = new URLSearchParams(window.location.search);
+        if (initialLoad && params.get("filter") === "races") setCalendarFilter("races");
+        const eventId = params.get("event");
         const linkedEvent = (data ?? []).find(item => item.id === eventId);
-        if (linkedEvent) {
+        if (initialLoad && linkedEvent) {
           const date = new Date(linkedEvent.starts_at);
           setViewingId(linkedEvent.id);
           setSelected(dateKey(date));
@@ -106,9 +110,13 @@ export default function CalendarPage() {
       const participants: Record<string, string[]> = {};
       for (const link of links ?? []) (participants[link.event_id] ??= []).push(link.person_id);
       setEventParticipants(participants);
+      initialLoad = false;
       setLoading(false);
     }
     void loadEvents();
+    const refresh = () => { if (document.visibilityState === "visible") void loadEvents(); };
+    window.addEventListener("focus", refresh);
+    return () => window.removeEventListener("focus", refresh);
   }, [router]);
 
   // Google stays read-only and the selected calendar is tied to the current user.
@@ -169,17 +177,11 @@ export default function CalendarPage() {
   }, []);
 
   const visibleEvents = useMemo(() => [...events, ...(showIcloud ? icloudEvents : []), ...(showGoogle ? googleEvents : []), ...(showSports ? sportsEvents : [])].filter(event => {
-    if (event.category === "ski_candidate") return false;
-    if (personFilter !== "all") {
-      if (event.category === "sports_feed") {
-        const name = persons.find(person => person.id === personFilter)?.name?.toLocaleLowerCase("sv-SE") ?? "";
-        if (event.sportsMember !== "both" && !name.includes(event.sportsMember ?? "unknown")) return false;
-      } else if (!(eventParticipants[event.id] ?? []).includes(personFilter)) return false;
-    }
+    if (!matchesCalendarFilter(event, calendarFilter, persons, eventParticipants)) return false;
     const query = search.trim().toLocaleLowerCase("sv-SE");
     if (!query) return true;
     return [event.title, event.location ?? "", dateKey(calendarDate(event.starts_at)), calendarDate(event.starts_at).toLocaleDateString("sv-SE")].some(value => value.toLocaleLowerCase("sv-SE").includes(query));
-  }), [events, icloudEvents, showIcloud, googleEvents, showGoogle, sportsEvents, showSports, eventParticipants, persons, personFilter, search]);
+  }), [events, icloudEvents, showIcloud, googleEvents, showGoogle, sportsEvents, showSports, eventParticipants, persons, calendarFilter, search]);
   const eventColor = (event: CalendarEvent) => {
     const member = persons.find(p => (eventParticipants[event.id] ?? []).includes(p.id));
     return member ? familyColor(member.name) : event.category === "sports_feed"
@@ -390,75 +392,23 @@ export default function CalendarPage() {
           ← Tillbaka till familjen
         </button>
         <h1 style={{ fontSize: "clamp(26px, 6vw, 34px)", marginBottom: 6 }}>Familjens kalender</h1>
-        <p><a href="/ski">⛷ Visa alpina tävlingar</a> · <a href="/connections">Anslut kalendrar</a></p>
+        <p><a href="/ski">⛷ Välj tävlingar till kalendern</a> · <a href="#calendar-connections">Anslutningar ↓</a></p>
         <p style={{ color: "#64748b", marginTop: 0 }}>Gemensam översikt över familjens aktiviteter.</p>
-        <section style={{ background: "white", borderRadius: 16, padding: 20, marginTop: 18 }}>
-          <h2 style={{ marginTop: 0, fontSize: 20 }}>Apple / iCloud</h2>
-          <label style={{ display: "flex", gap: 8, alignItems: "center" }}><input type="checkbox" checked={showIcloud} onChange={e => setShowIcloud(e.target.checked)} />Visa iCloud-aktiviteter</label>
-          <p role="status">{icloudStatus}</p>
-          <p><a href="/onboarding#icloud">Anslut eller hantera privat iCloud-kalender →</a></p>
-          <button type="button" disabled={icloudBusy} onClick={refreshIcloud} style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid #cbd5e1", background: "white", cursor: "pointer" }}>{icloudBusy ? "Hämtar iCloud…" : "Uppdatera iCloud"}</button>
-        </section>
-
-        <section style={{ background: "white", borderRadius: 16, padding: 20, marginTop: 18 }}>
-          <h2 style={{ marginTop: 0, fontSize: 20 }}>Föreningskalendrar – Svenskalag och SportAdmin</h2>
-          <p role="status" style={{ color: "#52627a" }}>{sportsStatus}</p>
-          <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <input type="checkbox" checked={showSports} onChange={e => setShowSports(e.target.checked)}/>
-            Visa föreningsaktiviteter i kalendern
-          </label>
-          <p><a href="/connections#sports">Välj eller ändra föreningskalendrar →</a></p>
-          <p style={{ color: "#64748b", fontSize: 13 }}>Pilot: hämtas skrivskyddat när kalendern öppnas och var 15:e minut när sidan är aktiv. Återkommande aktiviteter kan saknas tills vi färdigställt tidszoner och upprepningar.</p>
-        </section>
-
-        <section style={{ background: "white", borderRadius: 16, padding: 20, marginTop: 18 }}>
-          <h2 style={{ marginTop: 0, fontSize: 20 }}>Google Kalender</h2>
-          <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}><input type="checkbox" checked={showGoogle} onChange={e => setShowGoogle(e.target.checked)} /> Visa Google-aktiviteter i familjekalendern</label>
-          <p style={{ color: "#64748b" }}>Välj rätt Google-kalender i anslutningarna. Aktiviteter visas skrivskyddat här, utan att kopieras till databasen.</p>
-          <p><a href="/connections#google">Välj Google-kalender eller kontrollera anslutningen →</a></p>
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <button type="button" disabled={googleBusy} onClick={async () => {
-              setGoogleBusy(true); setGoogleStatus("");
-              try {
-                const { data: { session } } = await supabase.auth.getSession();
-                if (!session) throw Error("Logga in i Family Hub först.");
-                const response = await fetch("/api/google/connect", {
-                  method: "POST", headers: { Authorization: "Bearer " + session.access_token }
-                });
-                const result = await response.json();
-                if (!response.ok || !result.url) throw Error(result.error ?? "Kunde inte starta Google.");
-                window.location.assign(result.url);
-              } catch (error) {
-                setGoogleStatus(error instanceof Error ? error.message : "Google-anslutningen misslyckades.");
-                setGoogleBusy(false);
-              }
-            }} style={{ padding: "10px 14px", borderRadius: 8, background: "#315e9c", color: "white", cursor: "pointer" }}>Anslut Google</button>
-            <button type="button" disabled={googleBusy} onClick={() => void refreshGoogle()}
-              style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid #cbd5e1", background: "white", cursor: "pointer" }}>
-              {googleBusy ? "Hämtar Google…" : "Uppdatera Google Kalender"}
-            </button>
-          </div>
-          {googleStatus && <p role="status">{googleStatus}</p>}
-          {googlePreview.length > 0 && <ul>{googlePreview.slice(0, 20).map((item, index) => <li key={index}>{item.starts_at ? new Date(item.starts_at).toLocaleString("sv-SE") + " – " : ""}{item.title}</li>)}</ul>}
-        </section>
         <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 22 }}>
           <button onClick={() => { chooseDate(selected); }} style={{ background: "#315e9c", color: "white", border: 0, borderRadius: 10, padding: "13px 18px", fontWeight: 700, cursor: "pointer" }}>+ Lägg till aktivitet</button>
         </div>
+        <nav aria-label="Visa kalenderposter" style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 20 }}>
+          {([{ id: "all", label: "Alla" }, { id: "alva", label: "Alva" }, { id: "elsa", label: "Elsa" }, { id: "family", label: "Family" }, { id: "races", label: "Tävlingar" }] as const).map(filter => <button
+            key={filter.id} type="button" aria-pressed={calendarFilter === filter.id} onClick={() => setCalendarFilter(filter.id)}
+            style={{ border: "1px solid " + (calendarFilter === filter.id ? "#254c80" : "#d3deeb"), borderRadius: 24, padding: "10px 18px", background: calendarFilter === filter.id ? "#254c80" : "white", color: calendarFilter === filter.id ? "white" : "#334c6b", fontWeight: 700, cursor: "pointer" }}>{filter.label}</button>)}
+        </nav>
         <section aria-label="Kalenderfilter" style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 16, alignItems: "center" }}>
           <div style={{ display: "flex", gap: 4 }}>
             {(["month", "week", "day"] as const).map(mode => <button key={mode} type="button" onClick={() => setView(mode)} aria-pressed={view === mode} style={{ padding: "10px 12px", borderRadius: 9, border: "1px solid #cbd5e1", background: view === mode ? "#315e9c" : "white", color: view === mode ? "white" : "#17253b", cursor: "pointer" }}>{mode === "month" ? "Månad" : mode === "week" ? "Vecka" : "Dag"}</button>)}
           </div>
-          <select aria-label="Filtrera familjemedlem" value={personFilter} onChange={e => setPersonFilter(e.target.value)} style={{ ...inputStyle, width: "auto", marginTop: 0 }}>
-            <option value="all">Hela familjen</option>
-            {persons.map(person => <option key={person.id} value={person.id}>{person.name}</option>)}
-          </select>
           <input aria-label="Sök aktiviteter" placeholder="Sök namn, plats eller datum" value={search} onChange={e => setSearch(e.target.value)} style={{ ...inputStyle, width: "min(100%, 260px)", marginTop: 0 }} />
         </section>
-        {personFilter !== "all" && showGoogle && <p style={{ fontSize: 13, color: "#805b17" }}>Google-aktiviteter visas bara när filtret är Hela familjen, eftersom de ännu inte är kopplade till en person.</p>}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 10 }}>
-          {persons.map(person => <span key={person.id} style={{ fontSize: 12, borderRadius: 8, background: familyColor(person.name), padding: "5px 9px" }}>{person.name}</span>)}
-        </div>
-        {formSuccess && <p role="status" style={{ color: "#246b45" }}>{formSuccess}</p>}
+        {(calendarFilter === "alva" || calendarFilter === "elsa") && <p style={{ fontSize: 13, color: "#64748b" }}>Visar kopplade deltagare, föreningsaktiviteter och poster med namnet i rubriken. Övriga privata poster finns under Alla eller Family.</p>}
         {showForm && <section style={{ background: "white", borderRadius: 20, padding: 24, marginTop: 18 }}>
           <h2 style={{ marginTop: 0 }}>{editingId ? "Redigera aktivitet" : "Ny aktivitet"}</h2>
           <form onSubmit={saveEvent} style={{ display: "grid", gap: 14 }}>
@@ -592,6 +542,59 @@ export default function CalendarPage() {
             </article>)
           }
         </section>
+        <details id="calendar-connections" style={{ background: "#edf2f8", border: "1px solid #dce4ef", borderRadius: 18, padding: 20, marginTop: 28 }}>
+          <summary style={{ fontWeight: 700, fontSize: 18, cursor: "pointer" }}>Kalenderanslutningar och information</summary>
+          <p style={{ color: "#52627a", lineHeight: 1.6 }}>Hantera vilka källor som hämtas och kontrollera deras status här. Filtren ovan ändrar bara vad som visas.</p>
+        <section style={{ background: "white", borderRadius: 16, padding: 20, marginTop: 18 }}>
+          <h2 style={{ marginTop: 0, fontSize: 20 }}>Apple / iCloud</h2>
+          <label style={{ display: "flex", gap: 8, alignItems: "center" }}><input type="checkbox" checked={showIcloud} onChange={e => setShowIcloud(e.target.checked)} />Visa iCloud-aktiviteter</label>
+          <p role="status">{icloudStatus}</p>
+          <p><a href="/onboarding#icloud">Anslut eller hantera privat iCloud-kalender →</a></p>
+          <button type="button" disabled={icloudBusy} onClick={refreshIcloud} style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid #cbd5e1", background: "white", cursor: "pointer" }}>{icloudBusy ? "Hämtar iCloud…" : "Uppdatera iCloud"}</button>
+        </section>
+
+        <section style={{ background: "white", borderRadius: 16, padding: 20, marginTop: 18 }}>
+          <h2 style={{ marginTop: 0, fontSize: 20 }}>Föreningskalendrar – Svenskalag och SportAdmin</h2>
+          <p role="status" style={{ color: "#52627a" }}>{sportsStatus}</p>
+          <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <input type="checkbox" checked={showSports} onChange={e => setShowSports(e.target.checked)}/>
+            Visa föreningsaktiviteter i kalendern
+          </label>
+          <p><a href="/connections#sports">Välj eller ändra föreningskalendrar →</a></p>
+          <p style={{ color: "#64748b", fontSize: 13 }}>Pilot: hämtas skrivskyddat när kalendern öppnas och var 15:e minut när sidan är aktiv. Återkommande aktiviteter kan saknas tills vi färdigställt tidszoner och upprepningar.</p>
+        </section>
+
+        <section style={{ background: "white", borderRadius: 16, padding: 20, marginTop: 18 }}>
+          <h2 style={{ marginTop: 0, fontSize: 20 }}>Google Kalender</h2>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}><input type="checkbox" checked={showGoogle} onChange={e => setShowGoogle(e.target.checked)} /> Visa Google-aktiviteter i familjekalendern</label>
+          <p style={{ color: "#64748b" }}>Välj rätt Google-kalender i anslutningarna. Aktiviteter visas skrivskyddat här, utan att kopieras till databasen.</p>
+          <p><a href="/connections#google">Välj Google-kalender eller kontrollera anslutningen →</a></p>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <button type="button" disabled={googleBusy} onClick={async () => {
+              setGoogleBusy(true); setGoogleStatus("");
+              try {
+                const { data: { session } } = await supabase.auth.getSession();
+                if (!session) throw Error("Logga in i Family Hub först.");
+                const response = await fetch("/api/google/connect", {
+                  method: "POST", headers: { Authorization: "Bearer " + session.access_token }
+                });
+                const result = await response.json();
+                if (!response.ok || !result.url) throw Error(result.error ?? "Kunde inte starta Google.");
+                window.location.assign(result.url);
+              } catch (error) {
+                setGoogleStatus(error instanceof Error ? error.message : "Google-anslutningen misslyckades.");
+                setGoogleBusy(false);
+              }
+            }} style={{ padding: "10px 14px", borderRadius: 8, background: "#315e9c", color: "white", cursor: "pointer" }}>Anslut Google</button>
+            <button type="button" disabled={googleBusy} onClick={() => void refreshGoogle()}
+              style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid #cbd5e1", background: "white", cursor: "pointer" }}>
+              {googleBusy ? "Hämtar Google…" : "Uppdatera Google Kalender"}
+            </button>
+          </div>
+          {googleStatus && <p role="status">{googleStatus}</p>}
+          {googlePreview.length > 0 && <ul>{googlePreview.slice(0, 20).map((item, index) => <li key={index}>{item.starts_at ? new Date(item.starts_at).toLocaleString("sv-SE") + " – " : ""}{item.title}</li>)}</ul>}
+        </section>
+        </details>
       </div>
     </main>
   );

@@ -145,14 +145,17 @@ export default function SkiPage() {
     else {setNotice("Tävlingen är tillagd som förslag – inte i familjekalendern.");setTitle("");setPlace("");await reload();}
     setBusy(null);
   }
-  async function approve(race:Race, ids:string[]) {
+  async function approve(race:Race, ids:string[], openCalendar = false) {
     setError("");setNotice("");setBusy(race.id);
     if(!ids.length || ids.some(id=>!children.some(p=>p.id===id&&eligibleForPerson(race.description,p.name)))){setError("Välj en deltagare som tävlingen gäller för.");setBusy(null);return;}
     const {error:linkError}=await supabase.from("event_persons").upsert(ids.map(person_id=>({event_id:race.id,person_id})),{onConflict:"event_id,person_id"});
     if(linkError){setError("Kunde inte koppla deltagare: "+linkError.message);setBusy(null);return;}
-    const {error:updateError}=await supabase.from("calendar_events").update({category:"ski_approved"}).eq("id",race.id);
+    const {error:updateError}=await supabase.from("calendar_events").update({category:"ski_approved"}).eq("id",race.id).select("id").single();
     if(updateError)setError("Deltagarna sparades men tävlingen kunde inte godkännas: "+updateError.message);
-    else setNotice("Tävlingen visas nu i huvudkalendern.");
+    else {
+      setNotice("Tävlingen visas nu i huvudkalendern.");
+      if (openCalendar) { window.location.assign("/calendar?filter=races&event=" + encodeURIComponent(race.id)); return; }
+    }
     await reload();setBusy(null);
   }
   async function approveSelected() {
@@ -161,17 +164,20 @@ export default function SkiPage() {
     if(!chosen.length){setBusy(null);return;}
     const failures:string[]=[];
     let count=0;
+    let firstApprovedId: string | null = null;
     for(const race of chosen){
       const eligible=children.filter(p=>eligibleForPerson(race.description,p.name));
       if(!eligible.length){failures.push(race.title+": oklar åldersklass");continue;}
       const {error:linkError}=await supabase.from("event_persons").upsert(eligible.map(p=>({event_id:race.id,person_id:p.id})),{onConflict:"event_id,person_id"});
       if(linkError){failures.push(race.title+": "+linkError.message);continue;}
-      const {error:updateError}=await supabase.from("calendar_events").update({category:"ski_approved"}).eq("id",race.id);
-      if(updateError)failures.push(race.title+": "+updateError.message);else count++;
+      const {error:updateError}=await supabase.from("calendar_events").update({category:"ski_approved"}).eq("id",race.id).select("id").single();
+      if(updateError)failures.push(race.title+": "+updateError.message);
+      else { count++; firstApprovedId ??= race.id; }
     }
     setSelectedRaceIds([]);await reload();
     setNotice(count+" tävlingar godkända för matchande åldersklasser.");
     if(failures.length)setError("Vissa kunde inte godkännas: "+failures.join("; "));
+    else if (firstApprovedId) { window.location.assign("/calendar?filter=races&event=" + encodeURIComponent(firstApprovedId)); return; }
     setBusy(null);
   }
   async function removeParticipant(race:Race, personId:string) {
@@ -248,7 +254,7 @@ export default function SkiPage() {
         </select>
         {selectedRaceIds.length>0&&<div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",marginBottom:14}}>
           <strong>{selectedRaceIds.length} markerade</strong>
-          <button disabled={busy!==null} onClick={()=>void approveSelected()} style={{padding:"10px 14px",background:"#dcf3e6",border:0,borderRadius:8,cursor:"pointer"}}>Godkänn markerade för rätt åldersklass</button>
+          <button disabled={busy!==null} onClick={()=>void approveSelected()} style={{padding:"10px 14px",background:"#dcf3e6",border:0,borderRadius:8,cursor:"pointer"}}>Lägg markerade i huvudkalendern för rätt åldersklass</button>
           <button onClick={()=>setSelectedRaceIds([])} style={{padding:10}}>Rensa val</button>
         </div>}
         {loading?<p>Laddar...</p>:selected.length===0?<p>Inga tävlingar hittades. Officiella tävlingsflöden är ännu inte anslutna.</p>:
@@ -257,13 +263,14 @@ export default function SkiPage() {
             const assigned=children.filter(p=>(links[r.id]??[]).includes(p.id));
             return <article key={r.id} style={{border:"1px solid #e2e8f0",borderRadius:12,padding:15}}>
               {r.category==="ski_candidate"&&<label style={{display:"inline-flex",gap:8,alignItems:"center",marginRight:10}}>
-                <input type="checkbox" checked={selectedRaceIds.includes(r.id)} onChange={e=>setSelectedRaceIds(old=>e.target.checked?[...old,r.id]:old.filter(id=>id!==r.id))}/> Välj
+                <input type="checkbox" checked={selectedRaceIds.includes(r.id)} onChange={e=>setSelectedRaceIds(old=>e.target.checked?[...old,r.id]:old.filter(id=>id!==r.id))}/> Markera
               </label>}
               <strong>{r.title}</strong>
               <div style={{fontSize:14,color:"#475569",marginTop:7}}>{new Date(r.starts_at).toLocaleDateString("sv-SE")} – {(r.source==="ssf_stomprogram" && r.title.includes("USM-final 2027") ? new Date(new Date(r.ends_at).getTime()-86400000) : new Date(r.ends_at)).toLocaleDateString("sv-SE")} · {r.location||"Ort ej angiven"} · {r.description||"Klass ej angiven"}</div>
               <p style={{fontSize:13}}>{r.category==="ski_approved"?"Godkänd för "+assigned.map(p=>p.name).join(", "):"Möjlig tävling – inte i familjekalendern"}</p>
               <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                {r.category==="ski_candidate"?allowed.map(p=><button key={p.id} disabled={busy!==null} onClick={()=>void approve(r,[p.id])} style={{padding:"10px 12px",border:0,borderRadius:8,background:"#dcf3e6",cursor:"pointer"}}>Godkänn för {p.name}</button>):<>
+                {r.category === "ski_approved" && <a href={"/calendar?filter=races&event=" + encodeURIComponent(r.id)} style={{padding:"10px 12px",borderRadius:8,background:"#315e9c",color:"white",textDecoration:"none"}}>Visa i huvudkalendern →</a>}
+                {r.category==="ski_candidate"?allowed.map(p=><button key={p.id} disabled={busy!==null} onClick={()=>void approve(r,[p.id],true)} style={{padding:"10px 12px",border:0,borderRadius:8,background:"#dcf3e6",cursor:"pointer"}}>Välj för {p.name} → huvudkalendern</button>):<>
                   {allowed.filter(p=>!assigned.some(a=>a.id===p.id)).map(p=><button key={p.id} disabled={busy!==null} onClick={()=>void approve(r,[p.id])} style={{padding:"10px 12px",border:0,borderRadius:8,background:"#dcf3e6",cursor:"pointer"}}>Lägg till {p.name}</button>)}
                   {assigned.map(p=><button key={p.id} disabled={busy!==null} onClick={()=>void removeParticipant(r,p.id)} style={{padding:"10px 12px",border:"1px solid #cbd5e1",borderRadius:8,background:"white",cursor:"pointer"}}>Ta bort {p.name}</button>)}
                   <button disabled={busy!==null} onClick={()=>void unapprove(r)} style={{padding:"10px 12px",border:"1px solid #cbd5e1",borderRadius:8,background:"white",cursor:"pointer"}}>Ta bort från huvudkalendern</button>

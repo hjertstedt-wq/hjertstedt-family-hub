@@ -63,18 +63,16 @@ export default function CalendarPage() {
   const [selected, setSelected] = useState(() => dateKey(new Date()));
   const [view, setView] = useState<"month" | "week" | "day">("month");
   const [calendarFilter, setCalendarFilter] = useState<CalendarFilter>("all");
-  useEffect(() => { if (window.matchMedia("(max-width: 640px)").matches) setView("day"); }, []);
+
   const [search, setSearch] = useState("");
   const [repeatWeeks, setRepeatWeeks] = useState(1);
 
   const [showIcloud, setShowIcloud] = useState(true);
   const range = useMemo(() => {
-    const anchor = view === "month" ? month : new Date(selected + "T12:00:00");
-    const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
-    const start = view === "month" ? addDays(first, -((first.getDay() + 6) % 7)) : addDays(anchor, -7);
-    const end = view === "month" ? addDays(start, 42) : addDays(anchor, 8);
-    return { start: start.toISOString(), end: end.toISOString() };
-  }, [month, selected, view]);
+    const first = new Date(month.getFullYear(), month.getMonth(), 1);
+    const start = addDays(first, -((first.getDay() + 6) % 7));
+    return { start: start.toISOString(), end: addDays(start, 42).toISOString() };
+  }, [month]);
   const { icloudEvents, icloudStatus, icloudBusy, refreshIcloud } = useIcloudCalendar(range.start, range.end);
 
   useEffect(() => {
@@ -386,7 +384,7 @@ export default function CalendarPage() {
   };
 
   return (
-    <main style={{ minHeight: "100vh", background: "#f4f6fa", padding: "32px 16px", fontFamily: "Arial, sans-serif", color: "#17253b" }}>
+    <main className="family-calendar" style={{ minHeight: "100vh", background: "#f4f6fa", padding: "32px 16px", fontFamily: "Arial, sans-serif", color: "#17253b" }}>
       <div style={{ maxWidth: 1060, margin: "0 auto" }}>
         <button onClick={() => router.push("/")} style={{ border: 0, background: "transparent", color: "#345e9b", cursor: "pointer", padding: 0 }}>
           ← Tillbaka till familjen
@@ -448,34 +446,36 @@ export default function CalendarPage() {
             </div>
           </form>
         </section>}
-        <section style={{ background: "white", borderRadius: 20, padding: 22, marginTop: 26 }}>
+        <section className="calendar-panel" style={{ background: "white", borderRadius: 20, padding: 22, marginTop: 18 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 20 }}>
-            <button onClick={() => navigate(-1)} aria-label="Föregående månad" style={navStyle}>‹</button>
-            <h2 style={{ textTransform: "capitalize", margin: 0, fontSize: 22, textAlign: "center" }}>{view === "month" ? monthLabel.format(month) : view === "day" ? new Date(selected + "T12:00:00").toLocaleDateString("sv-SE", { weekday: "long", day: "numeric", month: "long" }) : "Vecka " + Math.ceil((new Date(selected + "T12:00:00").getTime() - new Date(new Date(selected + "T12:00:00").getFullYear(), 0, 1).getTime()) / 604800000)}</h2>
-            <button onClick={() => navigate(1)} aria-label="Nästa månad" style={navStyle}>›</button>
+            <button onClick={() => navigate(-1)} aria-label={"Föregående " + (view === "month" ? "månad" : view === "week" ? "vecka" : "dag")} style={navStyle}>‹</button>
+            <h2 style={{ textTransform: "capitalize", margin: 0, fontSize: 22, textAlign: "center" }}>{view === "month" ? monthLabel.format(month) : view === "day" ? new Date(selected + "T12:00:00").toLocaleDateString("sv-SE", { weekday: "long", day: "numeric", month: "long" }) : calendarDays[0].toLocaleDateString("sv-SE", { day: "numeric", month: "short" }) + " – " + calendarDays[6].toLocaleDateString("sv-SE", { day: "numeric", month: "short" })}</h2>
+            <button onClick={() => navigate(1)} aria-label={"Nästa " + (view === "month" ? "månad" : view === "week" ? "vecka" : "dag")} style={navStyle}>›</button>
           </div>
-          <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}><div style={{ display: "grid", minWidth: view === "day" ? 0 : view === "week" ? 560 : 490, gridTemplateColumns: view === "day" ? "minmax(0, 1fr)" : "repeat(7, minmax(0, 1fr))", gap: 5 }}>
-            {view !== "day" && weekdays.map(day => <div key={day} style={{ textAlign: "center", fontSize: 12, color: "#64748b", fontWeight: 700, padding: "8px 0" }}>{day}</div>)}
+          <button type="button" onClick={() => { const now = new Date(); setSelected(dateKey(now)); setMonth(new Date(now.getFullYear(), now.getMonth(), 1)); }} style={{ ...navStyle, width: "auto", fontSize: 15, padding: "0 16px", marginBottom: 12 }}>Idag</button>
+          <div><div className={"calendar-grid calendar-grid-" + view}>
+            {view !== "day" && weekdays.map(day => <div className="weekday-label" key={day} style={{ textAlign: "center", fontSize: 12, color: "#64748b", fontWeight: 700, padding: "8px 0" }}>{day}</div>)}
             {calendarDays.map(day => {
               const key = dateKey(day);
               const dayEvents = eventsByDay[key] ?? [];
               const inMonth = day.getMonth() === month.getMonth();
               const isSelected = key === selected;
               return (
-                <div key={key} style={{
+                <div className="calendar-cell" key={key} style={{
                   minHeight: 84, padding: 6, borderRadius: 10,
                   border: isSelected ? "2px solid #3766b1" : "1px solid #e8edf4",
                   background: isSelected ? "#eef4ff" : inMonth ? "#fff" : "#f7f8fb",
                   color: inMonth ? "#17253b" : "#9ca8b9",
                   display: "flex", flexDirection: "column", gap: 4
                 }}>
-                  <button type="button" onClick={() => chooseDate(key)}
-                    aria-label={"Lägg till aktivitet " + day.toLocaleDateString("sv-SE")}
+                  <button type="button" onClick={() => { setSelected(key); }}
+                    aria-pressed={isSelected} aria-label={"Visa " + day.toLocaleDateString("sv-SE") + ", " + dayEvents.length + " aktiviteter"}
                     style={{ alignSelf: "flex-start", border: 0, background: "transparent", color: "inherit", fontWeight: 700, fontSize: 13, cursor: "pointer", padding: "2px 4px" }}>
-                    {day.getDate()} <span style={{ fontSize: 11, opacity: 0.65 }}>+</span>
+                    <span className="day-number">{day.getDate()}</span><span className="day-week-label"> {day.toLocaleDateString("sv-SE", { weekday: "long", month: "short" })}</span>
                   </button>
+                  <button className="mobile-day-count" type="button" onClick={() => setSelected(key)} aria-label={dayEvents.length + " aktiviteter den " + key}>{dayEvents.length > 0 ? dayEvents.length + " st" : "–"}</button>
                   {dayEvents.map(event => (
-                    <button type="button" key={event.id} onClick={() => showDetails(event)}
+                    <button className="grid-event" type="button" key={event.id} onClick={() => showDetails(event)}
                       title={calendarTimeLabel(event.starts_at, event.ends_at) + " · " + event.title} aria-label={"Visa aktivitet: " + event.title + ", " + calendarTimeLabel(event.starts_at, event.ends_at)}
                       style={{ background: eventColor(event), color: "#244c82", border: 0, borderRadius: 4, padding: "4px 5px", fontSize: 11, textAlign: "left", cursor: "pointer", overflowWrap: "anywhere" }}>
                       <span style={{ display: "block", fontWeight: 700, marginBottom: 2 }}>{calendarTimeLabel(event.starts_at, event.ends_at)}</span>
@@ -545,16 +545,16 @@ export default function CalendarPage() {
         <details id="calendar-connections" style={{ background: "#edf2f8", border: "1px solid #dce4ef", borderRadius: 18, padding: 20, marginTop: 28 }}>
           <summary style={{ fontWeight: 700, fontSize: 18, cursor: "pointer" }}>Kalenderanslutningar och information</summary>
           <p style={{ color: "#52627a", lineHeight: 1.6 }}>Hantera vilka källor som hämtas och kontrollera deras status här. Filtren ovan ändrar bara vad som visas.</p>
-        <section style={{ background: "white", borderRadius: 16, padding: 20, marginTop: 18 }}>
-          <h2 style={{ marginTop: 0, fontSize: 20 }}>Apple / iCloud</h2>
+        <details className="source-settings" style={{ background: "white", borderRadius: 16, padding: 20, marginTop: 18 }}>
+          <summary>Apple / iCloud</summary>
           <label style={{ display: "flex", gap: 8, alignItems: "center" }}><input type="checkbox" checked={showIcloud} onChange={e => setShowIcloud(e.target.checked)} />Visa iCloud-aktiviteter</label>
           <p role="status">{icloudStatus}</p>
           <p><a href="/onboarding#icloud">Anslut eller hantera privat iCloud-kalender →</a></p>
           <button type="button" disabled={icloudBusy} onClick={refreshIcloud} style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid #cbd5e1", background: "white", cursor: "pointer" }}>{icloudBusy ? "Hämtar iCloud…" : "Uppdatera iCloud"}</button>
-        </section>
+        </details>
 
-        <section style={{ background: "white", borderRadius: 16, padding: 20, marginTop: 18 }}>
-          <h2 style={{ marginTop: 0, fontSize: 20 }}>Föreningskalendrar – Svenskalag och SportAdmin</h2>
+        <details className="source-settings" style={{ background: "white", borderRadius: 16, padding: 20, marginTop: 18 }}>
+          <summary>Föreningskalendrar – Svenskalag och SportAdmin</summary>
           <p role="status" style={{ color: "#52627a" }}>{sportsStatus}</p>
           <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <input type="checkbox" checked={showSports} onChange={e => setShowSports(e.target.checked)}/>
@@ -562,10 +562,10 @@ export default function CalendarPage() {
           </label>
           <p><a href="/connections#sports">Välj eller ändra föreningskalendrar →</a></p>
           <p style={{ color: "#64748b", fontSize: 13 }}>Pilot: hämtas skrivskyddat när kalendern öppnas och var 15:e minut när sidan är aktiv. Återkommande aktiviteter kan saknas tills vi färdigställt tidszoner och upprepningar.</p>
-        </section>
+        </details>
 
-        <section style={{ background: "white", borderRadius: 16, padding: 20, marginTop: 18 }}>
-          <h2 style={{ marginTop: 0, fontSize: 20 }}>Google Kalender</h2>
+        <details className="source-settings" style={{ background: "white", borderRadius: 16, padding: 20, marginTop: 18 }}>
+          <summary>Google Kalender</summary>
           <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}><input type="checkbox" checked={showGoogle} onChange={e => setShowGoogle(e.target.checked)} /> Visa Google-aktiviteter i familjekalendern</label>
           <p style={{ color: "#64748b" }}>Välj rätt Google-kalender i anslutningarna. Aktiviteter visas skrivskyddat här, utan att kopieras till databasen.</p>
           <p><a href="/connections#google">Välj Google-kalender eller kontrollera anslutningen →</a></p>
@@ -593,9 +593,33 @@ export default function CalendarPage() {
           </div>
           {googleStatus && <p role="status">{googleStatus}</p>}
           {googlePreview.length > 0 && <ul>{googlePreview.slice(0, 20).map((item, index) => <li key={index}>{item.starts_at ? new Date(item.starts_at).toLocaleString("sv-SE") + " – " : ""}{item.title}</li>)}</ul>}
-        </section>
+        </details>
         </details>
       </div>
+      <style jsx>{`
+        .calendar-grid { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:5px; }
+        .calendar-grid-day { grid-template-columns:minmax(0,1fr); }
+        .day-week-label,.mobile-day-count { display:none; }
+        .source-settings summary { font-weight:700; cursor:pointer; min-height:44px; display:list-item; align-content:center; }
+        .family-calendar button:focus-visible,.family-calendar summary:focus-visible { outline:3px solid #3766b1; outline-offset:2px; }
+        @media(max-width:640px) {
+          .family-calendar { padding:16px 10px!important; }
+          .family-calendar button,.family-calendar summary { min-height:44px; }
+          .family-calendar input { font-size:16px!important; }
+          .calendar-panel { padding:10px!important; }
+          .calendar-grid-month { gap:2px; }
+          .calendar-grid-month .calendar-cell { min-height:78px!important; padding:2px!important; gap:0!important; border-radius:6px!important; }
+          .calendar-grid-month .calendar-cell>button:first-child { width:100%; padding:0!important; }
+          .calendar-grid-month .grid-event { display:none; }
+          .calendar-grid-month .mobile-day-count { display:block; padding:0; border:0; background:transparent; color:#315e9c; font-size:11px; min-height:26px; }
+          .calendar-grid-week { grid-template-columns:minmax(0,1fr); gap:8px; }
+          .calendar-grid-week .weekday-label { display:none; }
+          .calendar-grid-week .day-week-label,.calendar-grid-day .day-week-label { display:inline; }
+          .calendar-grid-week .grid-event,.calendar-grid-day .grid-event { font-size:14px!important; padding:10px!important; }
+          .calendar-grid-week .calendar-cell>button:first-child,.calendar-grid-day .calendar-cell>button:first-child { font-size:15px!important; }
+          .source-settings { padding:12px!important; overflow-wrap:anywhere; }
+        }
+      `}</style>
     </main>
   );
 }

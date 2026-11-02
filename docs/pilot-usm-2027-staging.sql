@@ -19,7 +19,7 @@ BEGIN
     RAISE EXCEPTION 'Staging family not found. No change was made.';
   END IF;
 
-  SELECT count(*), min(id) INTO v_person_count, v_elsa
+  SELECT count(*), min(id::text)::uuid INTO v_person_count, v_elsa
     FROM public.persons
    WHERE family_id = v_family
      AND name ~* '(^|[[:space:]])Elsa([[:space:]]|$)';
@@ -67,8 +67,8 @@ BEGIN
      WHERE id = v_event AND family_id = v_family;
   END IF;
 
-  INSERT INTO public.event_persons (family_id, event_id, person_id)
-  VALUES (v_family, v_event, v_elsa)
+  INSERT INTO public.event_persons (event_id, person_id)
+  VALUES (v_event, v_elsa)
   ON CONFLICT (event_id, person_id) DO NOTHING;
 
   RAISE NOTICE 'USM 2027 linked to Elsa. Event: %, Person: %', v_event, v_elsa;

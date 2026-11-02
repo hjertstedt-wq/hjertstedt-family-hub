@@ -376,6 +376,12 @@ export default function CalendarPage() {
     setMonth(next);
     setSelected(dateKey(next));
   };
+  const selectDay = (key: string) => {
+    setSelected(key);
+    if (view === "month" && window.matchMedia("(max-width: 640px)").matches) {
+      requestAnimationFrame(() => document.getElementById("day-agenda")?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "start" }));
+    }
+  };
   const navigate = (direction: number) => {
     if (view === "month") { moveMonth(direction); return; }
     const date = addDays(new Date(selected + "T12:00:00"), direction * (view === "week" ? 7 : 1));
@@ -468,17 +474,17 @@ export default function CalendarPage() {
                   color: inMonth ? "#17253b" : "#9ca8b9",
                   display: "flex", flexDirection: "column", gap: 4
                 }}>
-                  <button type="button" onClick={() => { setSelected(key); }}
+                  <button type="button" onClick={() => selectDay(key)}
                     aria-pressed={isSelected} aria-label={"Visa " + day.toLocaleDateString("sv-SE") + ", " + dayEvents.length + " aktiviteter"}
                     style={{ alignSelf: "flex-start", border: 0, background: "transparent", color: "inherit", fontWeight: 700, fontSize: 13, cursor: "pointer", padding: "2px 4px" }}>
                     <span className="day-number">{day.getDate()}</span><span className="day-week-label"> {day.toLocaleDateString("sv-SE", { weekday: "long", month: "short" })}</span>
                   </button>
-                  <button className="mobile-day-count" type="button" onClick={() => setSelected(key)} aria-label={dayEvents.length + " aktiviteter den " + key}>{dayEvents.length > 0 ? dayEvents.length + " st" : "–"}</button>
+                  <button className="mobile-day-count" type="button" onClick={() => selectDay(key)} aria-label={dayEvents.length + " aktiviteter den " + key}>{dayEvents.length > 0 ? dayEvents.length + " st" : "–"}</button>
                   {dayEvents.map(event => (
                     <button className="grid-event" type="button" key={event.id} onClick={() => showDetails(event)}
-                      title={calendarTimeLabel(event.starts_at, event.ends_at) + " · " + event.title} aria-label={"Visa aktivitet: " + event.title + ", " + calendarTimeLabel(event.starts_at, event.ends_at)}
+                      title={calendarTimeLabel(event.starts_at, event.ends_at, event.source) + " · " + event.title} aria-label={"Visa aktivitet: " + event.title + ", " + calendarTimeLabel(event.starts_at, event.ends_at, event.source)}
                       style={{ background: eventColor(event), color: "#244c82", border: 0, borderRadius: 4, padding: "4px 5px", fontSize: 11, textAlign: "left", cursor: "pointer", overflowWrap: "anywhere" }}>
-                      <span style={{ display: "block", fontWeight: 700, marginBottom: 2 }}>{calendarTimeLabel(event.starts_at, event.ends_at)}</span>
+                      <span style={{ display: "block", fontWeight: 700, marginBottom: 2 }}>{calendarTimeLabel(event.starts_at, event.ends_at, event.source)}</span>
                       {event.title}
                     </button>
                   ))}
@@ -497,7 +503,7 @@ export default function CalendarPage() {
             const start = calendarDate(viewingEvent.starts_at);
             const end = calendarDate(viewingEvent.ends_at);
             const fullDay = /^\d{4}-\d{2}-\d{2}$/.test(viewingEvent.starts_at) ||
-              (["manual", "staging_seed"].includes(viewingEvent.source) && start.getHours() === 0 && start.getMinutes() === 0 && end.getHours() === 0 && end.getMinutes() === 0);
+              (["manual", "staging_seed", "ssf_stomprogram"].includes(viewingEvent.source) && start.getHours() === 0 && start.getMinutes() === 0 && end.getHours() === 0 && end.getMinutes() === 0);
             const last = new Date(end);
             if (fullDay) last.setDate(last.getDate() - 1);
             const fmt = (d: Date) => d.toLocaleDateString("sv-SE", { day: "numeric", month: "long", year: "numeric" });
@@ -515,14 +521,14 @@ export default function CalendarPage() {
             <button onClick={() => void deleteEvent(viewingEvent)} disabled={deletingId !== null} style={{ padding: "10px 16px", border: "1px solid #f3c6c6", borderRadius: 9, background: "white", color: "#b42318", cursor: "pointer" }}>Radera</button>
           </div>}
         </section>}
-        <section style={{ background: "white", borderRadius: 20, padding: 24, marginTop: 18 }}>
+        <section id="day-agenda" style={{ background: "white", borderRadius: 20, padding: 24, marginTop: 18 }}>
           <h2 style={{ marginTop: 0, fontSize: 20 }}>Aktiviteter {new Date(selected + "T12:00:00").toLocaleDateString("sv-SE", { day: "numeric", month: "long" })}</h2>
           {deleteError && <p role="alert" style={{ color: "#b42318" }}>{deleteError}</p>}
           {loading ? <p>Laddar aktiviteter...</p> : error ? <p role="alert" style={{ color: "#b42318" }}>{error}</p> :
             selectedEvents.length === 0 ? <p style={{ color: "#64748b" }}>Inga aktiviteter denna dag ännu.</p> :
             selectedEvents.map(event => <article key={event.id} style={{ borderTop: "1px solid #e8edf4", padding: "14px 0" }}>
               <button type="button" onClick={() => showDetails(event)} style={{ border: 0, background: "transparent", padding: 0, fontWeight: 700, color: "#315e9c", cursor: "pointer", textAlign: "left" }}>{event.title} → Visa information</button>
-              <div style={{ color: "#64748b", fontSize: 14, marginTop: 5 }}>{calendarTimeLabel(event.starts_at, event.ends_at)}{event.location ? " · " + event.location : ""}</div>
+              <div style={{ color: "#64748b", fontSize: 14, marginTop: 5 }}>{calendarTimeLabel(event.starts_at, event.ends_at, event.source)}{event.location ? " · " + event.location : ""}</div>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 8 }}>
                 <small style={{ color: "#8492a6" }}>Källa: {event.source}</small>
                 {["manual", "staging_seed"].includes(event.source) && (
@@ -603,7 +609,13 @@ export default function CalendarPage() {
         .source-settings summary { font-weight:700; cursor:pointer; min-height:44px; display:list-item; align-content:center; }
         .family-calendar button:focus-visible,.family-calendar summary:focus-visible { outline:3px solid #3766b1; outline-offset:2px; }
         @media(max-width:640px) {
-          .family-calendar { padding:16px 10px!important; }
+          .family-calendar { padding:12px 10px!important; }
+          .family-calendar h1 { margin-top:8px; }
+          .family-calendar nav { gap:4px!important; margin-top:12px!important; }
+          .family-calendar nav button { padding:8px!important; font-size:13px; }
+          .family-calendar h1+p { margin:8px 0; }
+          .family-calendar h1+p+p { display:none; }
+          #day-agenda { scroll-margin-top:12px; }
           .family-calendar button,.family-calendar summary { min-height:44px; }
           .family-calendar input { font-size:16px!important; }
           .calendar-panel { padding:10px!important; }

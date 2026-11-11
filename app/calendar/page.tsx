@@ -66,6 +66,7 @@ export default function CalendarPage() {
 
   const [theme, setTheme] = useState<"system" | "light" | "dark">("system");
   const [showSearch, setShowSearch] = useState(false);
+  const [dayAgenda, setDayAgenda] = useState(false);
   useEffect(() => {
     try {
       const saved = localStorage.getItem("family-hub-calendar-theme");
@@ -111,6 +112,7 @@ export default function CalendarPage() {
         if (initialLoad && linkedEvent) {
           const date = new Date(linkedEvent.starts_at);
           setViewingId(linkedEvent.id);
+          setDayAgenda(true);
           setSelected(dateKey(date));
           setMonth(new Date(date.getFullYear(), date.getMonth(), 1));
         }
@@ -235,6 +237,17 @@ export default function CalendarPage() {
   }, [visibleEvents]);
 
   const selectedEvents = [...(eventsByDay[selected] ?? [])].sort((a, b) => calendarDate(a.starts_at).getTime() - calendarDate(b.starts_at).getTime());
+  const monthEvents = useMemo(() => {
+    const items = new Map<string, CalendarEvent>();
+    const lastDay = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
+    for (let day = 1; day <= lastDay; day++) {
+      const key = dateKey(new Date(month.getFullYear(), month.getMonth(), day));
+      for (const event of eventsByDay[key] ?? []) items.set(event.id, event);
+    }
+    return [...items.values()].sort((a, b) => +calendarDate(a.starts_at) - +calendarDate(b.starts_at));
+  }, [eventsByDay, month]);
+  const showMonthAgenda = view === "month" && !dayAgenda;
+  const agendaEvents = showMonthAgenda ? monthEvents : selectedEvents;
   const saveEvent = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setFormError("");
@@ -392,10 +405,10 @@ export default function CalendarPage() {
   };
   const selectDay = (key: string) => {
     setSelected(key);
-
+    setDayAgenda(true);
   };
   const navigate = (direction: number) => {
-    if (view === "month") { moveMonth(direction); return; }
+    if (view === "month") { moveMonth(direction); setDayAgenda(false); return; }
     const date = addDays(new Date(selected + "T12:00:00"), direction * (view === "week" ? 7 : 1));
     setSelected(dateKey(date));
     setMonth(new Date(date.getFullYear(), date.getMonth(), 1));
@@ -425,7 +438,7 @@ export default function CalendarPage() {
         </nav>
         <section aria-label="Kalenderfilter" style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 16, alignItems: "center" }}>
           <div style={{ display: "flex", gap: 4 }}>
-            {(["month", "week", "day"] as const).map(mode => <button key={mode} type="button" onClick={() => setView(mode)} aria-pressed={view === mode} style={{ padding: "10px 12px", borderRadius: 9, border: "1px solid #cbd5e1", background: view === mode ? "#315e9c" : "var(--surface)", color: view === mode ? "#fff" : "var(--text)", cursor: "pointer" }}>{mode === "month" ? "Månad" : mode === "week" ? "Vecka" : "Dag"}</button>)}
+            {(["month", "week", "day"] as const).map(mode => <button key={mode} type="button" onClick={() => { setView(mode); setDayAgenda(false); }} aria-pressed={view === mode} style={{ padding: "10px 12px", borderRadius: 9, border: "1px solid #cbd5e1", background: view === mode ? "#315e9c" : "var(--surface)", color: view === mode ? "#fff" : "var(--text)", cursor: "pointer" }}>{mode === "month" ? "Månad" : mode === "week" ? "Vecka" : "Dag"}</button>)}
           </div>
           {showSearch && <input autoFocus aria-label="Sök aktiviteter" placeholder="Sök namn, plats eller datum" value={search} onChange={e => setSearch(e.target.value)} style={{ ...inputStyle, width: "min(100%, 260px)", marginTop: 0 }} />}
         </section>
@@ -476,7 +489,7 @@ export default function CalendarPage() {
             <h2 className="month-heading" style={{ textTransform: "capitalize", margin: 0, fontSize: 22, textAlign: "center" }}>{view === "month" ? monthLabel.format(month) : view === "day" ? new Date(selected + "T12:00:00").toLocaleDateString("sv-SE", { weekday: "long", day: "numeric", month: "long" }) : calendarDays[0].toLocaleDateString("sv-SE", { day: "numeric", month: "short" }) + " – " + calendarDays[6].toLocaleDateString("sv-SE", { day: "numeric", month: "short" })}</h2>
             <button onClick={() => navigate(1)} aria-label={"Nästa " + (view === "month" ? "månad" : view === "week" ? "vecka" : "dag")} style={navStyle}>›</button>
           </div>
-          <button type="button" onClick={() => { const now = new Date(); setSelected(dateKey(now)); setMonth(new Date(now.getFullYear(), now.getMonth(), 1)); }} style={{ ...navStyle, width: "auto", fontSize: 15, padding: "0 16px", marginBottom: 12 }}>Idag</button>
+          <button type="button" onClick={() => { const now = new Date(); setSelected(dateKey(now)); setDayAgenda(true); setMonth(new Date(now.getFullYear(), now.getMonth(), 1)); }} style={{ ...navStyle, width: "auto", fontSize: 15, padding: "0 16px", marginBottom: 12 }}>Idag</button>
           <div><div className={"calendar-grid calendar-grid-" + view}>
             {view !== "day" && weekdays.map(day => <div className="weekday-label" key={day} style={{ textAlign: "center", fontSize: 12, color: "var(--muted)", fontWeight: 700, padding: "8px 0" }}>{day}</div>)}
             {calendarDays.map(day => {
@@ -540,14 +553,26 @@ export default function CalendarPage() {
           </div>}
         </section>}
         <section id="day-agenda" style={{ background: "var(--surface)", borderRadius: 20, padding: 24, marginTop: 18 }}>
-          <h2 style={{ marginTop: 0, fontSize: 20 }}>Aktiviteter {new Date(selected + "T12:00:00").toLocaleDateString("sv-SE", { day: "numeric", month: "long" })}</h2>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
+            <h2 style={{ marginTop: 0, fontSize: 20 }}>{showMonthAgenda
+              ? "Aktiviteter i " + monthLabel.format(month)
+              : "Aktiviteter " + new Date(selected + "T12:00:00").toLocaleDateString("sv-SE", { day: "numeric", month: "long" })}</h2>
+            {view === "month" && dayAgenda && <button type="button" onClick={() => setDayAgenda(false)}>Visa hela månaden</button>}
+          </div>
           {deleteError && <p role="alert" style={{ color: "#b42318" }}>{deleteError}</p>}
           {loading ? <p>Laddar aktiviteter...</p> : error ? <p role="alert" style={{ color: "#b42318" }}>{error}</p> :
-            selectedEvents.length === 0 ? <p style={{ color: "var(--muted)" }}>Inga aktiviteter denna dag ännu.</p> :
-            selectedEvents.map(event => <article key={event.id} className="agenda-row">
+            agendaEvents.length === 0 ? <div style={{ color: "var(--muted)" }}>
+              <p>{showMonthAgenda ? "Inga aktiviteter i den här månaden med valt filter." : "Inga aktiviteter den här dagen."}</p>
+              {calendarFilter === "races" ? <a href="/ski">Visa tävlingsförslag →</a> :
+                <a href="#calendar-connections" onClick={() => {
+                  const settings = document.getElementById("calendar-connections");
+                  if (settings instanceof HTMLDetailsElement) settings.open = true;
+                }}>Kontrollera kalenderkällor →</a>}
+            </div> :
+            agendaEvents.map(event => <article key={event.id} className="agenda-row">
               <span className="agenda-color" style={{background: eventColor(event)}} aria-hidden="true" />
               <button className="agenda-event" type="button" onClick={() => showDetails(event)} aria-label={"Visa information om " + event.title}>
-                <span className="agenda-description"><strong>{event.title}</strong>{event.location && <span>{event.location}</span>}</span>
+                <span className="agenda-description"><strong>{event.title}</strong>{showMonthAgenda && <span>{calendarDate(event.starts_at).toLocaleDateString("sv-SE", { day: "numeric", month: "long" })}</span>}{event.location && <span>{event.location}</span>}</span>
                 <span className="agenda-time">{calendarTimeLabel(event.starts_at, event.ends_at, event.source).split("–").map((part, index) => <span key={index}>{part}</span>)}</span>
               </button>
             </article>)
@@ -555,6 +580,11 @@ export default function CalendarPage() {
         </section>
         <details id="calendar-connections" style={{ background: "var(--control)", border: "1px solid #dce4ef", borderRadius: 18, padding: 20, marginTop: 28 }}>
           <summary style={{ fontWeight: 700, fontSize: 18, cursor: "pointer" }}>Kalenderanslutningar och information</summary>
+          <ul style={{ color: "var(--muted)", paddingLeft: 22 }}>
+            <li><a href="/connections#icloud">iCloud</a> · {showIcloud ? icloudStatus : "Dold"}</li>
+            <li><a href="/connections#google">Google</a> · {showGoogle ? googleStatus : "Dold"}</li>
+            <li><a href="/connections#sports">Föreningar</a> · {showSports ? sportsStatus : "Dolda"}</li>
+          </ul>
           <p style={{ color: "var(--muted)", lineHeight: 1.6 }}>Hantera vilka källor som hämtas och kontrollera deras status här. Filtren ovan ändrar bara vad som visas.</p>
         <details className="source-settings" style={{ background: "var(--surface)", borderRadius: 16, padding: 20, marginTop: 18 }}>
           <summary>Apple / iCloud</summary>

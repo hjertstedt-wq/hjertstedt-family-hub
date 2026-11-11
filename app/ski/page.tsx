@@ -3,10 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabase";
 import { eligibleForPerson } from "../lib/ski-eligibility";
+import { matchesSeasonSuggestion, seasonSuggestions } from "../lib/ski-season-2027";
 
-type Person = { id: string; name: string };
+type Person = { id: string; name: string; family_id: string | null };
 type Race = { id: string; title: string; starts_at: string; ends_at: string; location: string | null; category: string; source: string; description: string | null; external_id?: string | null };
 const key = (date: Date) => [date.getFullYear(), String(date.getMonth()+1).padStart(2,"0"), String(date.getDate()).padStart(2,"0")].join("-");
+const seasonDate = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Stockholm", dateStyle: "medium" });
 const styles: React.CSSProperties = { width: "100%", boxSizing: "border-box", padding: 12, border: "1px solid #cbd5e1", borderRadius: 10, fontSize: 16 };
 
 export default function SkiPage() {
@@ -28,7 +30,7 @@ export default function SkiPage() {
   const children = useMemo(()=>persons.filter(p=>/elsa|alva/i.test(p.name)),[persons]);
   const reload = async () => {
     const [a,b,c] = await Promise.all([
-      supabase.from("persons").select("id,name").order("name"),
+      supabase.from("persons").select("id,name,family_id").order("name"),
       supabase.from("calendar_events").select("id,title,starts_at,ends_at,location,category,source,description,external_id").in("category",["ski_candidate","ski_approved"]).order("starts_at"),
       supabase.from("event_persons").select("event_id,person_id")
     ]);
@@ -42,96 +44,47 @@ export default function SkiPage() {
     setLoading(false);
   };
   useEffect(()=>{let active=true;void supabase.auth.getUser().then(({data})=>{if(!active)return;if(!data.user){window.location.replace("/login");return;}void reload();});return()=>{active=false;};},[]);
-  const selected = races.filter(r=>{
+  const suggestions = seasonSuggestions.filter(suggestion => !races.some(race => matchesSeasonSuggestion(race, suggestion)));
+  const available = [...races, ...suggestions].sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at));
+  const selected = available.filter(r=>{
     if(filter==="all")return true;
     if(filter==="approved")return r.category==="ski_approved";
     if(filter==="candidate")return r.category==="ski_candidate";
     const name=persons.find(p=>p.id===filter)?.name.toLowerCase()??"";
     return (links[r.id]??[]).includes(filter) || (r.category==="ski_candidate" && eligibleForPerson(r.description,name));
   });
-  // SSF's published 2026/27 calendar window, not a confirmed personal start or a per-discipline schedule.
-  const usmSource = "ssf_stomprogram";
-  const usmTitle = "USM-final 2027 – Funäsdalen (planerad)";
-  const usmStart = "2027-04-05T00:00:00+02:00";
-  const usmEndExclusive = "2027-04-12T00:00:00+02:00";
+  async function saveSuggestion(race: Race, ids: string[]) {
+    const suggestion = suggestions.find(item => item.id === race.id);
+    if (!suggestion) return race.id;
+    const familyId = children.find(person => person.id === ids[0])?.family_id;
+    if (!familyId || ids.some(id => !children.some(person => person.id === id && person.family_id === familyId))) {
+      throw Error("Deltagarna måste tillhöra samma familj.");
+    }
+    const externalId = suggestion.external_id + "-" + familyId;
+    const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("family-hub:season:" + externalId));
+    const hex = Array.from(new Uint8Array(hash).slice(0, 16), byte => byte.toString(16).padStart(2, "0")).join("");
+    const id = hex.replace(/^(........)(....)(....)(....)(............)$/, "$1-$2-$3-$4-$5");
+    const { error } = await supabase.from("calendar_events").upsert({
+      id, family_id: familyId, external_id: externalId, title: suggestion.title,
+      starts_at: suggestion.starts_at, ends_at: suggestion.ends_at, location: suggestion.location,
+      category: suggestion.category, source: suggestion.source, description: suggestion.description
+    }, { onConflict: "id", ignoreDuplicates: true });
+    if (error) throw Error(error.message);
+    return id;
+  }
 
-  async function addUsmForEligibleChild() {
-    setBusy("usm2027"); setError(""); setNotice("");
-    let createdId: string | null = null;
-    try {
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-      if (authError || !user) throw new Error("Du måste logga in i Family Hub igen.");
-
-      const { data: matches, error: peopleError } = await supabase
-        .from("persons").select("id,name,family_id").ilike("name", "%Elsa%");
-      if (peopleError) throw new Error("Kunde inte kontrollera familjemedlemmar: " + peopleError.message);
-      const eligible = (matches ?? []).filter(p =>
-        /\bElsa\b/i.test(p.name) && eligibleForPerson("U16 · USM-final", p.name) && p.family_id
-      );
-      if (eligible.length !== 1) throw new Error(
-        "Hittade inte exakt en Elsa-profil i din familj. Kontrollera familjemedlemmarna innan USM sparas."
-      );
-      const elsa = eligible[0] as {id:string;name:string;family_id:string};
-      const externalId = "usm-final-2027-funasdalen-" + elsa.family_id;
-
-      // Query by source ID first. Also find a previously registered USM 2027 event
-      // for the same week to avoid copying it twice.
-      const { data: candidates, error: queryError } = await supabase
-        .from("calendar_events")
-        .select("id,title,category,source,external_id,starts_at")
-        .eq("family_id", elsa.family_id)
-        .gte("starts_at", "2027-04-04T20:00:00Z")
-        .lt("starts_at", "2027-04-07T00:00:00Z");
-      if (queryError) throw new Error("Kunde inte kontrollera befintliga aktiviteter: " + queryError.message);
-
-      const existing = (candidates ?? []).find(e =>
-        (e.source === usmSource && e.external_id === externalId) ||
-        (/\bUSM\b/i.test(e.title) && /2027|final/i.test(e.title))
-      );
-
-      let eventId = existing?.id;
-      if (!eventId) {
-        const { data: created, error: createError } = await supabase
-          .from("calendar_events").insert({
-            family_id: elsa.family_id,
-            title: usmTitle,
-            starts_at: new Date(usmStart).toISOString(),
-            ends_at: new Date(usmEndExclusive).toISOString(),
-            location: "Funäsdalen",
-            category: "ski_approved",
-            source: usmSource,
-            external_id: externalId,
-            description: "U16 · USM-final · 5–11 april 2027 enligt stomprogram. Grendagar och personlig start är ännu inte bekräftade."
-          }).select("id").single();
-        if (createError || !created) throw new Error("Kunde inte spara USM: " + (createError?.message ?? "Inget svar"));
-        eventId = created.id;
-        createdId = eventId;
-      } else if (existing?.category === "ski_candidate") {
-        const {error:approveError} = await supabase.from("calendar_events")
-          .update({category:"ski_approved"}).eq("id", eventId).eq("family_id", elsa.family_id);
-        if (approveError) throw new Error("Kunde inte godkänna den befintliga USM-aktiviteten: " + approveError.message);
-      }
-
-      const {data:existingLink,error:readLinkError} = await supabase.from("event_persons")
-        .select("event_id").eq("event_id",eventId).eq("person_id",elsa.id).maybeSingle();
-      if (readLinkError) throw new Error("Kunde inte kontrollera deltagarkopplingen: " + readLinkError.message);
-      if (!existingLink) {
-        const {error:linkError} = await supabase.from("event_persons").insert({
-          event_id: eventId, person_id: elsa.id, family_id: elsa.family_id
-        });
-        if (linkError) throw new Error("Kunde inte koppla USM till Elsa: " + linkError.message);
-      }
-
-      setNotice("USM-finalen 5–11 april 2027 är nu inlagd i familjekalendern för Elsa (U16). Alva har inte lagts till. Det är en planerad tävlingsvecka, inte ett bekräftat deltagande.");
-      await reload();
-    } catch (err) {
-      let detail = err instanceof Error ? err.message : "Okänt fel";
-      if (createdId) {
-        const {error:rollbackError} = await supabase.from("calendar_events").delete().eq("id",createdId);
-        if (rollbackError) detail += " Observera: aktiviteten kan ha sparats utan deltagare. Kontrollera kalendern innan du försöker igen.";
-      }
-      setError(detail);
-    } finally { setBusy(null); }
+  async function saveApproval(race: Race, ids: string[]) {
+    const id = await saveSuggestion(race, ids);
+    const participants = ids.map(person_id => {
+      const familyId = children.find(person => person.id === person_id)?.family_id;
+      return { event_id: id, person_id, ...(familyId ? { family_id: familyId } : {}) };
+    });
+    const { error: linkError } = await supabase.from("event_persons")
+      .upsert(participants, { onConflict: "event_id,person_id", ignoreDuplicates: true });
+    if (linkError) throw Error("Kunde inte koppla deltagare: " + linkError.message);
+    const {error:updateError}=await supabase.from("calendar_events").update({category:"ski_approved"}).eq("id",id).select("id").single();
+    if (updateError) throw Error("Deltagarna sparades men tävlingen kunde inte godkännas: " + updateError.message);
+    return id;
   }
 
   async function addRace(e: React.FormEvent) {
@@ -148,19 +101,18 @@ export default function SkiPage() {
   async function approve(race:Race, ids:string[], openCalendar = false) {
     setError("");setNotice("");setBusy(race.id);
     if(!ids.length || ids.some(id=>!children.some(p=>p.id===id&&eligibleForPerson(race.description,p.name)))){setError("Välj en deltagare som tävlingen gäller för.");setBusy(null);return;}
-    const {error:linkError}=await supabase.from("event_persons").upsert(ids.map(person_id=>({event_id:race.id,person_id})),{onConflict:"event_id,person_id",ignoreDuplicates:true});
-    if(linkError){setError("Kunde inte koppla deltagare: "+linkError.message);setBusy(null);return;}
-    const {error:updateError}=await supabase.from("calendar_events").update({category:"ski_approved"}).eq("id",race.id).select("id").single();
-    if(updateError)setError("Deltagarna sparades men tävlingen kunde inte godkännas: "+updateError.message);
-    else {
-      setNotice("Tävlingen visas nu i huvudkalendern.");
-      if (openCalendar) { window.location.assign("/calendar?filter=races&event=" + encodeURIComponent(race.id)); return; }
+    try {
+      const id = await saveApproval(race, ids);
+      setNotice("Aktiviteten visas nu i huvudkalendern.");
+      if (openCalendar) { window.location.assign("/calendar?filter=races&event=" + encodeURIComponent(id)); return; }
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "Kunde inte godkänna aktiviteten.");
     }
     await reload();setBusy(null);
   }
   async function approveSelected() {
     setError("");setNotice("");setBusy("bulk");
-    const chosen=races.filter(r=>selectedRaceIds.includes(r.id)&&r.category==="ski_candidate");
+    const chosen=available.filter(r=>selectedRaceIds.includes(r.id)&&r.category==="ski_candidate");
     if(!chosen.length){setBusy(null);return;}
     const failures:string[]=[];
     let count=0;
@@ -168,11 +120,13 @@ export default function SkiPage() {
     for(const race of chosen){
       const eligible=children.filter(p=>eligibleForPerson(race.description,p.name));
       if(!eligible.length){failures.push(race.title+": oklar åldersklass");continue;}
-      const {error:linkError}=await supabase.from("event_persons").upsert(eligible.map(p=>({event_id:race.id,person_id:p.id})),{onConflict:"event_id,person_id",ignoreDuplicates:true});
-      if(linkError){failures.push(race.title+": "+linkError.message);continue;}
-      const {error:updateError}=await supabase.from("calendar_events").update({category:"ski_approved"}).eq("id",race.id).select("id").single();
-      if(updateError)failures.push(race.title+": "+updateError.message);
-      else { count++; firstApprovedId ??= race.id; }
+      try {
+        const id = await saveApproval(race, eligible.map(person => person.id));
+        count++;
+        firstApprovedId ??= id;
+      } catch (failure) {
+        failures.push(race.title + ": " + (failure instanceof Error ? failure.message : "Kunde inte spara."));
+      }
     }
     setSelectedRaceIds([]);await reload();
     setNotice(count+" tävlingar godkända för matchande åldersklasser.");
@@ -209,25 +163,44 @@ export default function SkiPage() {
     <div style={{maxWidth:960,margin:"auto"}}>
       <a href="/" style={{color:"#315e9c"}}>← Till familjen</a>
       <h1>Alpint – tävlingar</h1>
-      <p><a href="/ski/connections" style={{color:"#315e9c",fontWeight:700}}>Anslut Skidförbundet, Region 5, Svenskalag och SportsAdmin →</a></p>
-      <p><a href="/ski/training" style={{color:"#315e9c",fontWeight:700}}>Planera alpina träningar och flerdagarsläger för Elsa och Alva →</a></p>
-      <p><a href="/ski/status" style={{color:"#315e9c",fontWeight:700}}>Kontrollera källor och synkroniseringsstatus →</a></p>
-      <p><a href="/ski/sources" style={{color:"#315e9c",fontWeight:700}}>Visa relevanta tävlingar och läger från Skidförbundet →</a></p>
-      <p><a href="/ski/import" style={{color:"#315e9c",fontWeight:700}}>Importera tävlingar från kalenderfil (.ics) →</a></p>
       <p style={{color:"#64748b"}}>Elsa · U16 · NSK / Region 5 &nbsp;|&nbsp; Alva · U14 · NSK / Region 5</p>
-      <p>Förslag ligger separat. Först när du godkänner en tävling visas den i familjens huvudkalender.</p>
+      <p>Välj åkare på ett förslag för att lägga aktiviteten i huvudkalendern.</p>
       {error&&<p role="alert" style={{color:"#b42318"}}>{error}</p>}
       {notice&&<p role="status" style={{color:"#166534"}}>{notice}</p>}
-      <section style={{background:"white",padding:20,borderRadius:16,marginBottom:18,border:"1px solid #d5e2f3"}}>
-        <h2 style={{marginTop:0}}>USM-final 2027 – Funäsdalen</h2>
-        <p><strong>5–11 april 2027</strong> · Planerat datumintervall enligt Svenska Skidförbundet och Region 5</p>
-        <p><strong>Berättigad:</strong> Elsa (U16, född 2011). <strong>Inte aktuell:</strong> Alva (U14, född 2014).</p>
-        <p style={{fontSize:14,color:"#52627a"}}>Lägg in veckan som en heldagsaktivitet för Elsa i familjekalendern. Exakta grendagar och slutligt deltagande markeras som obekräftade. Samma vecka läggs inte in flera gånger.</p>
-        <p><a href="https://www.skidor.com/idrotter/alpint/tavling/tavlingskalender--stomprogram" target="_blank" rel="noopener noreferrer">Skidförbundets officiella stomprogram</a></p>
-        <button type="button" disabled={busy!==null||loading} onClick={()=>void addUsmForEligibleChild()}
-          style={{background:"#315e9c",color:"white",border:0,borderRadius:10,padding:14,cursor:"pointer",fontSize:15,fontWeight:700}}>
-          {busy==="usm2027"?"Sparar USM…":"Lägg in USM 2027 för Elsa i familjekalendern"}
-        </button>
+      <section style={{background:"white",padding:20,borderRadius:16}}>
+        <h2>Tävlingsöversikt</h2>
+        <select aria-label="Filtrera tävlingar" value={filter} onChange={e=>setFilter(e.target.value)} style={{...styles,maxWidth:300,marginBottom:14}}>
+          <option value="all">Alla tävlingar</option><option value="candidate">Möjliga tävlingar</option><option value="approved">Godkända tävlingar</option>
+          {children.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+        {selectedRaceIds.length>0&&<div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",marginBottom:14}}>
+          <strong>{selectedRaceIds.length} markerade</strong>
+          <button disabled={busy!==null} onClick={()=>void approveSelected()} style={{padding:"10px 14px",background:"#dcf3e6",border:0,borderRadius:8,cursor:"pointer"}}>Lägg markerade i huvudkalendern för rätt åldersklass</button>
+          <button onClick={()=>setSelectedRaceIds([])} style={{padding:10}}>Rensa val</button>
+        </div>}
+        {loading?<p>Laddar...</p>:selected.length===0?<p>Inga tävlingar matchar det valda filtret.</p>:
+          <div style={{display:"grid",gap:12}}>{selected.map(r=>{
+            const sourceLink = seasonSuggestions.find(item => matchesSeasonSuggestion(r, item))?.url;
+            const allowed=children.filter(p=>eligibleForPerson(r.description,p.name));
+            const assigned=children.filter(p=>(links[r.id]??[]).includes(p.id));
+            return <article key={r.id} style={{border:"1px solid #e2e8f0",borderRadius:12,padding:15}}>
+              {r.category==="ski_candidate"&&<label style={{display:"inline-flex",gap:8,alignItems:"center",marginRight:10}}>
+                <input type="checkbox" checked={selectedRaceIds.includes(r.id)} onChange={e=>setSelectedRaceIds(old=>e.target.checked?[...old,r.id]:old.filter(id=>id!==r.id))}/> Markera
+              </label>}
+              <strong>{r.title}</strong>
+              <div style={{fontSize:14,color:"#475569",marginTop:7}}>{seasonDate.format(new Date(r.starts_at))} – {seasonDate.format(new Date(Date.parse(r.ends_at) - (r.source === "ssf_stomprogram" ? 1 : 0)))} · {r.location||"Ort ej angiven"} · {r.description||"Klass ej angiven"}</div>
+              {sourceLink && <p><a href={sourceLink} target="_blank" rel="noreferrer">Visa källa ↗</a></p>}
+              <p style={{fontSize:13}}>{r.category==="ski_approved"?"Godkänd för "+assigned.map(p=>p.name).join(", "):"Möjlig tävling – inte i familjekalendern"}</p>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                {r.category === "ski_approved" && <a href={"/calendar?filter=races&event=" + encodeURIComponent(r.id)} style={{padding:"10px 12px",borderRadius:8,background:"#315e9c",color:"white",textDecoration:"none"}}>Visa i huvudkalendern →</a>}
+                {r.category==="ski_candidate"?allowed.map(p=><button key={p.id} disabled={busy!==null} onClick={()=>void approve(r,[p.id],true)} style={{padding:"10px 12px",border:0,borderRadius:8,background:"#dcf3e6",cursor:"pointer"}}>Välj för {p.name} → huvudkalendern</button>):<>
+                  {allowed.filter(p=>!assigned.some(a=>a.id===p.id)).map(p=><button key={p.id} disabled={busy!==null} onClick={()=>void approve(r,[p.id])} style={{padding:"10px 12px",border:0,borderRadius:8,background:"#dcf3e6",cursor:"pointer"}}>Lägg till {p.name}</button>)}
+                  {assigned.map(p=><button key={p.id} disabled={busy!==null} onClick={()=>void removeParticipant(r,p.id)} style={{padding:"10px 12px",border:"1px solid #cbd5e1",borderRadius:8,background:"white",cursor:"pointer"}}>Ta bort {p.name}</button>)}
+                  <button disabled={busy!==null} onClick={()=>void unapprove(r)} style={{padding:"10px 12px",border:"1px solid #cbd5e1",borderRadius:8,background:"white",cursor:"pointer"}}>Ta bort från huvudkalendern</button>
+                </>}
+              </div>
+            </article>;
+          })}</div>}
       </section>
       <section style={{background:"white",padding:20,borderRadius:16,marginBottom:18}}>
         <h2>Registrera tävlingsförslag</h2>
@@ -246,39 +219,13 @@ export default function SkiPage() {
           <button disabled={busy!==null} style={{background:"#315e9c",color:"white",border:0,borderRadius:10,padding:13,cursor:"pointer"}}>Lägg till som förslag</button>
         </form>
       </section>
-      <section style={{background:"white",padding:20,borderRadius:16}}>
-        <h2>Tävlingsöversikt</h2>
-        <select aria-label="Filtrera tävlingar" value={filter} onChange={e=>setFilter(e.target.value)} style={{...styles,maxWidth:300,marginBottom:14}}>
-          <option value="all">Alla tävlingar</option><option value="candidate">Möjliga tävlingar</option><option value="approved">Godkända tävlingar</option>
-          {children.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
-        {selectedRaceIds.length>0&&<div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",marginBottom:14}}>
-          <strong>{selectedRaceIds.length} markerade</strong>
-          <button disabled={busy!==null} onClick={()=>void approveSelected()} style={{padding:"10px 14px",background:"#dcf3e6",border:0,borderRadius:8,cursor:"pointer"}}>Lägg markerade i huvudkalendern för rätt åldersklass</button>
-          <button onClick={()=>setSelectedRaceIds([])} style={{padding:10}}>Rensa val</button>
-        </div>}
-        {loading?<p>Laddar...</p>:selected.length===0?<p>Inga tävlingar hittades. Officiella tävlingsflöden är ännu inte anslutna.</p>:
-          <div style={{display:"grid",gap:12}}>{selected.map(r=>{
-            const allowed=children.filter(p=>eligibleForPerson(r.description,p.name));
-            const assigned=children.filter(p=>(links[r.id]??[]).includes(p.id));
-            return <article key={r.id} style={{border:"1px solid #e2e8f0",borderRadius:12,padding:15}}>
-              {r.category==="ski_candidate"&&<label style={{display:"inline-flex",gap:8,alignItems:"center",marginRight:10}}>
-                <input type="checkbox" checked={selectedRaceIds.includes(r.id)} onChange={e=>setSelectedRaceIds(old=>e.target.checked?[...old,r.id]:old.filter(id=>id!==r.id))}/> Markera
-              </label>}
-              <strong>{r.title}</strong>
-              <div style={{fontSize:14,color:"#475569",marginTop:7}}>{new Date(r.starts_at).toLocaleDateString("sv-SE")} – {(r.source==="ssf_stomprogram" && r.title.includes("USM-final 2027") ? new Date(new Date(r.ends_at).getTime()-86400000) : new Date(r.ends_at)).toLocaleDateString("sv-SE")} · {r.location||"Ort ej angiven"} · {r.description||"Klass ej angiven"}</div>
-              <p style={{fontSize:13}}>{r.category==="ski_approved"?"Godkänd för "+assigned.map(p=>p.name).join(", "):"Möjlig tävling – inte i familjekalendern"}</p>
-              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                {r.category === "ski_approved" && <a href={"/calendar?filter=races&event=" + encodeURIComponent(r.id)} style={{padding:"10px 12px",borderRadius:8,background:"#315e9c",color:"white",textDecoration:"none"}}>Visa i huvudkalendern →</a>}
-                {r.category==="ski_candidate"?allowed.map(p=><button key={p.id} disabled={busy!==null} onClick={()=>void approve(r,[p.id],true)} style={{padding:"10px 12px",border:0,borderRadius:8,background:"#dcf3e6",cursor:"pointer"}}>Välj för {p.name} → huvudkalendern</button>):<>
-                  {allowed.filter(p=>!assigned.some(a=>a.id===p.id)).map(p=><button key={p.id} disabled={busy!==null} onClick={()=>void approve(r,[p.id])} style={{padding:"10px 12px",border:0,borderRadius:8,background:"#dcf3e6",cursor:"pointer"}}>Lägg till {p.name}</button>)}
-                  {assigned.map(p=><button key={p.id} disabled={busy!==null} onClick={()=>void removeParticipant(r,p.id)} style={{padding:"10px 12px",border:"1px solid #cbd5e1",borderRadius:8,background:"white",cursor:"pointer"}}>Ta bort {p.name}</button>)}
-                  <button disabled={busy!==null} onClick={()=>void unapprove(r)} style={{padding:"10px 12px",border:"1px solid #cbd5e1",borderRadius:8,background:"white",cursor:"pointer"}}>Ta bort från huvudkalendern</button>
-                </>}
-              </div>
-            </article>;
-          })}</div>}
-      </section>
+      <details style={{marginTop:18}}><summary>Kalenderkällor, träning och import</summary>
+      <p><a href="/ski/connections" style={{color:"#315e9c",fontWeight:700}}>Anslut Skidförbundet, Region 5, Svenskalag och SportsAdmin →</a></p>
+      <p><a href="/ski/training" style={{color:"#315e9c",fontWeight:700}}>Planera alpina träningar och flerdagarsläger för Elsa och Alva →</a></p>
+      <p><a href="/ski/status" style={{color:"#315e9c",fontWeight:700}}>Kontrollera källor och synkroniseringsstatus →</a></p>
+      <p><a href="/ski/sources" style={{color:"#315e9c",fontWeight:700}}>Visa relevanta tävlingar och läger från Skidförbundet →</a></p>
+      <p><a href="/ski/import" style={{color:"#315e9c",fontWeight:700}}>Importera tävlingar från kalenderfil (.ics) →</a></p>
+      </details>
     </div>
   </main>;
 }
